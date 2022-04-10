@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <iostream>
 
 // Apply callback to each element in container but limit number of in items
 // being processed.
