@@ -13,6 +13,7 @@ hunter_add_package(asio)
 find_package(Threads REQUIRED)
 find_package(asio CONFIG REQUIRED)
 
+set (CMAKE_CXX_STANDARD 17)
 
 file(GLOB HPP_FILES "*.hpp")
 file(GLOB CPP_FILES "*.cpp")
