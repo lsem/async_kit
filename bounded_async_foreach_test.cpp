@@ -71,7 +71,7 @@ TEST_P(bounded_async_foreach_test, all_items_processed) {
 
 INSTANTIATE_TEST_SUITE_P(
     bounded_async_foreach_test_tests, bounded_async_foreach_test,
-    ::testing::Values(test_sample{10, 100, 10}, test_sample{1, 100, 1},
+    ::testing::Values(test_sample{14, 100, 14}, test_sample{1, 10, 1},
                       test_sample{0, 100, 0}, test_sample{10, 5, 5}));
 
 TEST(bounded_async_foreach, basic_randomized_test) {
@@ -85,7 +85,7 @@ TEST(bounded_async_foreach, basic_randomized_test) {
     int n_running_max = 0;
     auto limit_n = rand() % 10 + 1;
 
-    auto items = generate_itmes(100);
+    auto items = generate_itmes(rand() % 30 + 1);
     std::vector<std::string> items_processed;
 
     auto foreach_ctx = bounded_async_foreach(
@@ -94,7 +94,7 @@ TEST(bounded_async_foreach, basic_randomized_test) {
           n_running_max = std::max(n_running_max, n_running);
           items_processed.emplace_back(item);
 
-          auto random_time = std::chrono::milliseconds(rand() % 200);
+          auto random_time = std::chrono::milliseconds(rand() % 100);
           async_sleep(ctx, random_time,
                       [&n_running, done_cb = std::move(done_cb)] {
                         n_running--;
@@ -102,7 +102,9 @@ TEST(bounded_async_foreach, basic_randomized_test) {
                       });
         });
     ctx.run();
-    EXPECT_EQ(n_running_max, limit_n) << "seed was :" << seed;
-    EXPECT_EQ(items_processed, items);
+
+    EXPECT_EQ(n_running_max, std::min(limit_n, (int)items.size()))
+        << "seed was :" << seed;
+    EXPECT_EQ(items_processed, items) << "seed was :" << seed;
   }
 }
