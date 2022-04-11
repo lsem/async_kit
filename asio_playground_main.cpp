@@ -1,5 +1,6 @@
 #include <chrono>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -20,7 +21,8 @@ void async_sleep(asio::io_context &ctx, std::chrono::steady_clock::duration t,
 
 int num_in_flight = 0;
 
-auto start_work(asio::io_context &ctx) {
+template <class Callback>
+void start_work(asio::io_context &ctx, Callback done) {
 
   auto generate_itmes = [](unsigned n) {
     std::vector<std::string> res;
@@ -30,28 +32,43 @@ auto start_work(asio::io_context &ctx) {
     return res;
   };
 
-  auto items = generate_itmes(300);
+  std::vector<int> items = { 1,2,3 };
+  struct state_t {
+      std::stringstream log;
+      bool done_called = false;
+  };
+  auto self = std::make_shared<state_t>();
 
-  auto foreach_ctx = bounded_async_foreach(
-      14, items,
-      [&ctx](auto &item, auto done_cb) {
-        std::cout << "processing item [" << item << "] started "
-                  << "  (num in flight: " << ++num_in_flight << ")\n";
+  bounded_async_foreach(
+      2, items,
+      [&ctx, self](int i, auto cb) {
 
-        // simulate long running operation and signal finish by calling done_cb
-        async_sleep(ctx, std::chrono::milliseconds((rand() % 5) * 100),
-                    [item, done_cb = std::move(done_cb)] {
-                      std::cout << "processing item [" << item << "] done "
-                                << "     (num in flight: " << --num_in_flight
-                                << ")\n";
-                      done_cb();
-                    });
+        if (self->done_called) {
+            self->log << "done was already called\n";
+        }
+        self->log << "processing item [" << i << "] started\n";
+
+        int timeout = i == 1 ? 100 : 200;
+
+        async_sleep(ctx, std::chrono::milliseconds(timeout),
+            [self, i, cb = std::move(cb)]{
+              self->log << "processing item [" << i << "] done\n";
+            if (i == 1) {
+                self->log << "Operation failed\n";
+                cb(std::make_error_code(std::errc::operation_canceled));
+                return;
+            }
+            cb({});
+            });
+        if (self->done_called) {
+            self->log << "done was already called\n";
+        }
       },
-      []() {
-        // finished
-        std::cout << "finished\n";
+      [self, done = std::move(done)](std::error_code ec) {
+          self->done_called = true;
+        self->log << "finished with " << ec.message().c_str() << "\n";
+        done(self->log.str());
       });
-  return foreach_ctx;
 }
 
 int main() {
@@ -59,7 +76,25 @@ int main() {
 
   asio::io_context ctx;
 
-  auto foreach_ctx = start_work(ctx);
+  static auto expected_log = R"(asio playground
+processing item [1] started
+processing item [2] started
+processing item [1] done
+Operation failed
+processing item [1] done
+finished with operation canceled
+)";
+
+  start_work(ctx, [](auto log) { 
+      
+      if (log != expected_log) {
+          std::cout << "Wrong logs\n\n"
+              << " -- Expected logs:\n\n"
+              << expected_log
+              << "\n -- Actual logs\n\n"
+              << log;
+      }
+      });
 
   // // simulate cancel after 3s
   // async_sleep(ctx, 2s, [&foreach_ctx]() {
