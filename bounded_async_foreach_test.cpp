@@ -74,6 +74,46 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Values(test_sample{14, 100, 14}, test_sample{1, 10, 1},
                       test_sample{0, 100, 0}, test_sample{10, 5, 5}));
 
+TEST(bounded_async_foreach, finished_callback_call_test) {
+  // test that 'finished' callback gets called only once and after all 'item'
+  // callbacks. finished callback should be called only once.
+
+  asio::io_context ctx;
+
+  auto items = generate_itmes(10);
+  std::vector<std::string> items_processed;
+  int n_running = 0;
+  int n_running_max = 0;
+  auto limit_n = 3;
+
+  bool finished_called = false;
+
+  auto foreach_ctx = bounded_async_foreach(
+      limit_n, items,
+      [&](const std::string &item, auto done_cb) {
+        EXPECT_FALSE(finished_called);
+
+        n_running++;
+        n_running_max = std::max(n_running_max, n_running);
+        items_processed.emplace_back(item);
+
+        auto random_time = std::chrono::milliseconds(rand() % 100);
+        async_sleep(ctx, random_time,
+                    [&n_running, done_cb = std::move(done_cb)] {
+                      n_running--;
+                      done_cb();
+                    });
+      },
+      [&]() {
+        EXPECT_FALSE(finished_called);
+        finished_called = true;
+        EXPECT_EQ(items_processed, items_processed);
+      });
+
+  ctx.run();
+  EXPECT_TRUE(finished_called);
+}
+
 TEST(bounded_async_foreach, basic_randomized_test) {
   auto seed = time(NULL);
   srand(seed);
