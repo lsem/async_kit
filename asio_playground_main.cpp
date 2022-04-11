@@ -20,7 +20,8 @@ void async_sleep(asio::io_context &ctx, std::chrono::steady_clock::duration t,
 
 int num_in_flight = 0;
 
-auto start_work(asio::io_context &ctx) {
+template <class Callback>
+void start_work(asio::io_context &ctx, Callback done) {
 
   auto generate_itmes = [](unsigned n) {
     std::vector<std::string> res;
@@ -30,10 +31,10 @@ auto start_work(asio::io_context &ctx) {
     return res;
   };
 
-  auto items = generate_itmes(300);
+  auto items = generate_itmes(10);
 
-  auto foreach_ctx = bounded_async_foreach(
-      14, items,
+  bounded_async_foreach(
+      3, items,
       [&ctx](auto &item, auto done_cb) {
         std::cout << "processing item [" << item << "] started "
                   << "  (num in flight: " << ++num_in_flight << ")\n";
@@ -44,14 +45,14 @@ auto start_work(asio::io_context &ctx) {
                       std::cout << "processing item [" << item << "] done "
                                 << "     (num in flight: " << --num_in_flight
                                 << ")\n";
-                      done_cb();
+                      done_cb(std::error_code());
                     });
       },
-      []() {
+      [done = std::move(done)](std::error_code ec) {
         // finished
-        std::cout << "finished\n";
+        std::cout << "finished: " << ec.message().c_str() << "\n";
+        done();
       });
-  return foreach_ctx;
 }
 
 int main() {
@@ -59,7 +60,7 @@ int main() {
 
   asio::io_context ctx;
 
-  auto foreach_ctx = start_work(ctx);
+  start_work(ctx, []() { std::cout << "start_work done\n"; });
 
   // // simulate cancel after 3s
   // async_sleep(ctx, 2s, [&foreach_ctx]() {
