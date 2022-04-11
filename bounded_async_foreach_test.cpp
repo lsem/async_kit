@@ -50,17 +50,19 @@ TEST_P(bounded_async_foreach_test, all_items_processed) {
   int n_running = 0;
   int n_running_max = 0;
 
-  auto foreach_ctx = bounded_async_foreach(
-      sample.limit_num, items, [&](const std::string &item, auto done_cb) {
+  bounded_async_foreach(
+      sample.limit_num, items,
+      [&](const std::string &item, auto done_cb) {
         n_running++;
         n_running_max = std::max(n_running_max, n_running);
         items_processed.emplace_back(item);
 
         async_sleep(ctx, 100ms, [&n_running, done_cb = std::move(done_cb)] {
           n_running--;
-          done_cb();
+          done_cb(std::error_code());
         });
-      });
+      },
+      [&](std::error_code) { EXPECT_EQ(items_processed, items_processed); });
   ctx.run();
 
   EXPECT_EQ(n_running_max, sample.expected_rinning_num);
@@ -88,7 +90,7 @@ TEST(bounded_async_foreach, finished_callback_call_test) {
 
   bool finished_called = false;
 
-  auto foreach_ctx = bounded_async_foreach(
+  bounded_async_foreach(
       limit_n, items,
       [&](const std::string &item, auto done_cb) {
         EXPECT_FALSE(finished_called);
@@ -101,10 +103,10 @@ TEST(bounded_async_foreach, finished_callback_call_test) {
         async_sleep(ctx, random_time,
                     [&n_running, done_cb = std::move(done_cb)] {
                       n_running--;
-                      done_cb();
+                      done_cb(std::error_code());
                     });
       },
-      [&]() {
+      [&](std::error_code) {
         EXPECT_FALSE(finished_called);
         finished_called = true;
         EXPECT_EQ(items_processed, items_processed);
@@ -128,8 +130,9 @@ TEST(bounded_async_foreach, basic_randomized_test) {
     auto items = generate_itmes(rand() % 30 + 1);
     std::vector<std::string> items_processed;
 
-    auto foreach_ctx = bounded_async_foreach(
-        limit_n, items, [&](const std::string &item, auto done_cb) {
+    bounded_async_foreach(
+        limit_n, items,
+        [&](const std::string &item, auto done_cb) {
           n_running++;
           n_running_max = std::max(n_running_max, n_running);
           items_processed.emplace_back(item);
@@ -138,8 +141,11 @@ TEST(bounded_async_foreach, basic_randomized_test) {
           async_sleep(ctx, random_time,
                       [&n_running, done_cb = std::move(done_cb)] {
                         n_running--;
-                        done_cb();
+                        done_cb(std::error_code());
                       });
+        },
+        [](std::error_code) {
+          // ..
         });
     ctx.run();
 
@@ -147,4 +153,55 @@ TEST(bounded_async_foreach, basic_randomized_test) {
         << "seed was :" << seed;
     EXPECT_EQ(items_processed, items) << "seed was :" << seed;
   }
+}
+
+TEST(bounded_async_foreach, empty_collection_test) {
+  bool finish_called = false;
+  std::vector<int> input;
+  bounded_async_foreach(
+      1, input,
+      [](auto element, auto done) {
+        ASSERT_TRUE(false) << "not supposed to be called\n";
+      },
+      [&](std::error_code ec) {
+        EXPECT_FALSE(ec);
+        finish_called = true;
+      });
+
+  EXPECT_TRUE(finish_called);
+}
+
+TEST(bounded_async_foreach, zero_limit_test) {
+  bool finish_called = false;
+  std::vector<int> input = {1, 2, 3};
+  bounded_async_foreach(
+      0, input,
+      [](auto element, auto done) {
+        ASSERT_TRUE(false) << "not supposed to be called\n";
+      },
+      [&](std::error_code ec) {
+        EXPECT_EQ(ec, make_error_code(std::errc::no_child_process));
+        finish_called = true;
+      });
+
+  EXPECT_TRUE(finish_called);
+}
+
+TEST(bounded_async_foreach, synchronous_calls_test) {
+  bool finish_called = false;
+  std::vector<int> input = {1, 2, 3, 4, 5};
+  std::vector<int> done_invocations;
+  bounded_async_foreach(
+      2, input,
+      [&done_invocations](auto element, auto done) {
+        done_invocations.emplace_back(element);
+        done(std::error_code());
+      },
+      [&](std::error_code ec) {
+        EXPECT_FALSE(ec);
+        finish_called = true;
+      });
+
+  EXPECT_TRUE(finish_called);
+  EXPECT_EQ(done_invocations, input);
 }
