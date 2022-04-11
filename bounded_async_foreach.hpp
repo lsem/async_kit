@@ -17,7 +17,7 @@ void bounded_async_foreach(unsigned n, Container c, Callback cb,
   if (n == 0) {
     finished_cb(make_error_code(std::errc::no_child_process));
     return;
-  } else if (std::distance(std::cbegin(c), std::cend(c)) == 0) {
+  } else if (std::empty(c)) {
     // nothing has beem processed succesfully.
     finished_cb(std::error_code());
     return;
