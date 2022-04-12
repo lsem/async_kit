@@ -94,7 +94,6 @@ INSTANTIATE_TEST_SUITE_P(
 TEST(bounded_async_foreach, finished_callback_call_test) {
   // test that 'finished' callback gets called only once and after all 'item'
   // callbacks. finished callback should be called only once.
-
   asio::io_context ctx;
 
   auto items = generate_itmes(10);
@@ -326,4 +325,75 @@ TEST(bounded_async_foreach,
     ctx.run();
     EXPECT_TRUE(finish_called);
   }
+}
+
+TEST(bounded_async_foreach, operation_canceled) {
+
+  asio::io_context ctx;
+
+  bool finish_called = false;
+  std::vector<int> input = {1, 2, 3, 4, 5};
+  std::vector<int> done_invocations;
+  bounded_async_foreach(
+      2, input,
+      [&](auto element, auto done) {
+        EXPECT_FALSE(finish_called) << element;
+        done_invocations.emplace_back(element);
+        auto result = std::error_code();
+        auto timeout = std::chrono::milliseconds(10);
+        if (element == 1) {
+          result = std::make_error_code(std::errc::operation_canceled);
+          timeout = std::chrono::milliseconds(5);
+        }
+        async_sleep(ctx, timeout, [=] { done(result); });
+      },
+      [&](std::error_code ec) {
+        EXPECT_TRUE(ec);
+        finish_called = true;
+      });
+
+  EXPECT_FALSE(finish_called);
+  EXPECT_EQ(done_invocations.size(), 2)
+      << "bounded_async_foreach will start 2 iterations immidiatly";
+
+  ctx.run();
+
+  EXPECT_TRUE(finish_called);
+  std::vector<int> expected_invocations = {1, 2};
+  EXPECT_EQ(done_invocations, expected_invocations);
+}
+
+TEST(bounded_async_foreach, first_operation_skips_done_callback) {
+  asio::io_context ctx;
+
+  bool finish_called = false;
+  std::vector<int> input = {1, 2, 3, 4, 5};
+  std::vector<int> done_invocations;
+  bounded_async_foreach(
+      2, input,
+      [&](auto element, auto done) {
+        EXPECT_FALSE(finish_called) << element;
+        done_invocations.emplace_back(element);
+        auto result = std::error_code();
+        auto timeout = std::chrono::milliseconds(10);
+        if (element == 1) {
+          // first iteration skipps done callback
+          return;
+        }
+        async_sleep(ctx, timeout, [=] { done(result); });
+      },
+      [&](std::error_code ec) {
+        EXPECT_TRUE(ec);
+        finish_called = true;
+      });
+
+  EXPECT_FALSE(finish_called);
+  EXPECT_EQ(done_invocations.size(), 2)
+      << "bounded_async_foreach will start 2 iterations immidiatly";
+
+  ctx.run();
+
+  EXPECT_TRUE(finish_called);
+  std::vector<int> expected_invocations = input;
+  EXPECT_EQ(done_invocations, expected_invocations);
 }
