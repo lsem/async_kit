@@ -233,7 +233,7 @@ TEST(bounded_async_foreach, operation_canceled) {
         });
 
     EXPECT_FALSE(finish_called);
-    EXPECT_EQ(done_invocations.size(), 0);
+    EXPECT_EQ(done_invocations.size(), 2) << "bounded_async_foreach will start 2 iterations immidiatly";
 
     ctx.run();
 
