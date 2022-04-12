@@ -81,7 +81,7 @@ processing item [1] started
 processing item [2] started
 processing item [1] done
 Operation failed
-processing item [1] done
+processing item [2] done
 finished with operation canceled
 )";
 
