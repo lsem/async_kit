@@ -33,37 +33,29 @@ void bounded_async_foreach(unsigned limit_n, Container c, Callback cb,
                                            std::move(finished_cb));
 
   self->process_next = [self]() {
-    if (self->it == std::cend(self->c)) {
-      if (self->free_workers == self->n_workers) {
-        // last element tries to find new work
-        self->finished_cb(self->exec_result);
-      } else {
-        // just do not start new anymore.
-      }
-    } else {
-      // more to do
+    if (self->it != std::cend(self->c)) {
       if (self->free_workers > 0) {
-        // there are more place to start new work
         self->free_workers--;
-
         self->cb(*self->it++, [self](std::error_code ec) {
           self->free_workers++;
-
           if (ec) {
-            // we stop at error, but want to finish after the
-            // last element finished.
-            self->exec_result = ec;
+            // first error sticks to state, other errors basically ignored,
+            // this targets practical use case for cancelling.
+            if (!self->exec_result) {
+              self->exec_result = ec;
+            }
             self->it = std::cend(self->c);
           } else {
             // success, just go on to next one.
           }
-
           self->process_next();
         });
-
         self->process_next();
-      } else {
-        // the ones currently working will continue.
+      }
+    } else {
+      // last element tries to find new work, non-last just fade out.
+      if (self->free_workers == self->n_workers) {
+        self->finished_cb(self->exec_result);
       }
     }
   };
