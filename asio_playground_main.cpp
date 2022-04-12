@@ -36,6 +36,11 @@ void start_work(asio::io_context &ctx, Callback done) {
   bounded_async_foreach(
       3, items,
       [&ctx](auto &item, auto done_cb) {
+        if (rand() % 10 < 3) {
+          done_cb(make_error_code(std::errc::operation_canceled));
+          return;
+        }
+
         std::cout << "processing item [" << item << "] started "
                   << "  (num in flight: " << ++num_in_flight << ")\n";
 
