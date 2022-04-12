@@ -32,6 +32,7 @@ void bounded_async_foreach(unsigned n, Container c, Callback cb,
     const unsigned N;
     FinishCallback finished_cb;
     bool finish_called = false;
+    std::error_code exec_result = std::error_code();
 
     algorithm_state(Container c, Callback cb, unsigned n,
                     FinishCallback finished_cb)
@@ -45,34 +46,37 @@ void bounded_async_foreach(unsigned n, Container c, Callback cb,
 
   shared_state->process_next = [shared_state]() {
     if (shared_state->it == std::cend(shared_state->c)) {
-      return;
-    }
-    if (shared_state->n > 0) {
-      shared_state->n--;
-      shared_state->cb(*shared_state->it++, [shared_state](std::error_code ec) {
-        if (ec == make_error_code(std::errc::operation_canceled)) {
-          if (!shared_state->finish_called) {
-            shared_state->finished_cb(ec);
-            shared_state->finish_called = true;
-          }
-          return;
-        }
-        // free one vacant place and start next one if there is any
-        shared_state->n++;
-        const bool finished = shared_state->it == std::cend(shared_state->c);
-        if (finished && shared_state->n == shared_state->N) {
-          if (!shared_state->finish_called) {
-            shared_state->finished_cb(std::error_code());
-            shared_state->finish_called = true;
-          }
-        } else {
-          shared_state->process_next();
-        }
-      });
-      // process next if there is vacant place
-      shared_state->process_next();
+      if (shared_state->n == shared_state->N) {
+        // last element tries to find new work
+        shared_state->finished_cb(shared_state->exec_result);
+      } else {
+        // just do not start new anymore.
+      }
     } else {
-      // there are not vacant palces
+      // more to do
+      if (shared_state->n > 0) {
+        // there are more place to start new work
+        shared_state->n--;
+
+        shared_state->cb(*shared_state->it++,
+                         [shared_state](std::error_code ec) {
+                           shared_state->n++;
+                           if (ec) {
+                             // we stop at error, but want to finish after the
+                             // last element finished.
+                             shared_state->exec_result = ec;
+                             shared_state->it = std::cend(shared_state->c);
+                           } else {
+                             // success
+                           }
+
+                           shared_state->process_next();
+                         });
+
+        shared_state->process_next();
+      } else {
+        // the ones currently working will continue.
+      }
     }
   };
 

@@ -205,3 +205,67 @@ TEST(bounded_async_foreach, synchronous_calls_test) {
   EXPECT_TRUE(finish_called);
   EXPECT_EQ(done_invocations, input);
 }
+
+TEST(bounded_async_foreach, after_cancel_no_new_starts_test) {
+  asio::io_context ctx;
+
+  std::vector<int> input = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+  bool finish_called = false;
+
+  bounded_async_foreach(
+      3, input,
+      [&](int item, auto done_cb) {
+        if (item == 1) {
+          done_cb(make_error_code(std::errc::operation_canceled));
+          return;
+        } else {
+          ASSERT_TRUE(false);
+        }
+
+        async_sleep(ctx, 300ms, [done_cb = std::move(done_cb)] {
+          done_cb(std::error_code());
+        });
+      },
+      [&](std::error_code ec) {
+        EXPECT_EQ(ec, make_error_code(std::errc::operation_canceled));
+        finish_called = true;
+      });
+
+  ctx.run();
+
+  EXPECT_TRUE(finish_called);
+}
+
+TEST(bounded_async_foreach, finish_called_after_last_item_done) {
+  for (int limit = 0; limit < 11; ++limit) {
+    asio::io_context ctx;
+
+    std::vector<int> input = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+    bool finish_called = false;
+
+    std::vector<int> item_done_calls;
+
+    bounded_async_foreach(
+        4, input, // actually should work for both >3 and 1 number of workers.
+        [&](int item, auto done_cb) {
+          if (item == 3) {
+            done_cb(make_error_code(std::errc::operation_canceled));
+            return;
+          }
+
+          async_sleep(ctx, 100ms,
+                      [item, &item_done_calls, done_cb = std::move(done_cb)] {
+                        item_done_calls.push_back(item);
+                        done_cb(std::error_code());
+                      });
+        },
+        [&](std::error_code ec) {
+          EXPECT_EQ(ec, make_error_code(std::errc::operation_canceled));
+          EXPECT_EQ(item_done_calls, std::vector<int>({1, 2}));
+          finish_called = true;
+        });
+
+    ctx.run();
+    EXPECT_TRUE(finish_called);
+  }
+}
