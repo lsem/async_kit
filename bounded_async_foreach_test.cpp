@@ -28,23 +28,32 @@ auto generate_itmes(unsigned n) {
   return res;
 }
 
+auto make_sequence(unsigned n) {
+  std::vector<std::string> res;
+  for (unsigned i = 0; i < n; ++i)
+    res.push_back(std::to_string(i));
+  return res;
+}
+
 struct test_sample {
   int limit_num;
   int items_num;
   int expected_rinning_num;
 };
+std::ostream &operator<<(std::ostream &os, const test_sample &s) {
+  os << "test_sample(limit_num: " << s.limit_num
+     << ", items_num: " << s.items_num
+     << ", expected_rinning_num: " << s.expected_rinning_num << ")";
+  return os;
+}
+class bounded_async_foreach_p : public ::testing::TestWithParam<test_sample> {};
 
-class bounded_async_foreach_test
-    : public ::testing::TestWithParam<test_sample> {
-protected:
-};
-
-TEST_P(bounded_async_foreach_test, all_items_processed) {
+TEST_P(bounded_async_foreach_p, all_items_processed_and_limit_respected) {
   test_sample sample = GetParam();
 
   asio::io_context ctx;
 
-  auto items = generate_itmes(sample.items_num);
+  auto items = make_sequence(sample.items_num);
   std::vector<std::string> items_processed;
 
   int n_running = 0;
@@ -62,17 +71,23 @@ TEST_P(bounded_async_foreach_test, all_items_processed) {
           done_cb(std::error_code());
         });
       },
-      [&](std::error_code) { EXPECT_EQ(items_processed, items_processed); });
+      [&](std::error_code ec) {
+        if (sample.limit_num > 0) {
+          EXPECT_FALSE(ec);
+        }
+        EXPECT_EQ(items_processed, items_processed);
+      });
   ctx.run();
 
   EXPECT_EQ(n_running_max, sample.expected_rinning_num);
 
-  if (n_running_max > 0)
+  if (n_running_max > 0) {
     EXPECT_EQ(items_processed, items);
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    bounded_async_foreach_test_tests, bounded_async_foreach_test,
+    sequence_size_and_limit_combinations, bounded_async_foreach_p,
     ::testing::Values(test_sample{14, 100, 14}, test_sample{1, 10, 1},
                       test_sample{0, 100, 0}, test_sample{10, 5, 5}));
 
@@ -237,27 +252,70 @@ TEST(bounded_async_foreach, after_cancel_no_new_starts_test) {
 }
 
 TEST(bounded_async_foreach, finish_called_after_last_item_done) {
-  for (int limit = 0; limit < 11; ++limit) {
+  for (int limit = 1; limit < 6; ++limit) {
     asio::io_context ctx;
 
-    std::vector<int> input = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+    std::vector<int> input = {1, 2, 3, 4, 5};
     bool finish_called = false;
 
     std::vector<int> item_done_calls;
 
     bounded_async_foreach(
-        4, input, // actually should work for both >3 and 1 number of workers.
+        limit,
+        input, // actually should work for both >3 and 1 number of workers.
         [&](int item, auto done_cb) {
+          EXPECT_FALSE(finish_called);
+
           if (item == 3) {
             done_cb(make_error_code(std::errc::operation_canceled));
-            return;
-          }
 
-          async_sleep(ctx, 100ms,
-                      [item, &item_done_calls, done_cb = std::move(done_cb)] {
-                        item_done_calls.push_back(item);
-                        done_cb(std::error_code());
-                      });
+          } else {
+            async_sleep(ctx, 300ms,
+                        [item, &item_done_calls, done_cb = std::move(done_cb)] {
+                          item_done_calls.push_back(item);
+                          done_cb(std::error_code());
+                        });
+          }
+        },
+        [&](std::error_code ec) {
+          EXPECT_EQ(ec, make_error_code(std::errc::operation_canceled));
+          EXPECT_EQ(item_done_calls, std::vector<int>({1, 2}));
+          finish_called = true;
+        });
+
+    ctx.run();
+    EXPECT_TRUE(finish_called);
+  }
+}
+
+TEST(bounded_async_foreach,
+     finish_called_after_last_item_done__pending_jobs_fail) {
+  // it is expected that first error is propagated to finish callback,
+  // subsequent errors are ignored.
+  for (int limit = 3; limit < 6; ++limit) {
+    SCOPED_TRACE("limit: " + std::to_string(limit));
+    asio::io_context ctx;
+
+    std::vector<int> input = {1, 2, 3, 4, 5};
+    bool finish_called = false;
+
+    std::vector<int> item_done_calls;
+
+    bounded_async_foreach(
+        limit,
+        input, // actually should work for both >3 and 1 number of workers.
+        [&](int item, auto done_cb) {
+          EXPECT_FALSE(finish_called);
+
+          if (item == 3) {
+            done_cb(make_error_code(std::errc::operation_canceled));
+          } else {
+            async_sleep(ctx, 300ms,
+                        [item, &item_done_calls, done_cb = std::move(done_cb)] {
+                          item_done_calls.push_back(item);
+                          done_cb(make_error_code(std::errc::io_error));
+                        });
+          }
         },
         [&](std::error_code ec) {
           EXPECT_EQ(ec, make_error_code(std::errc::operation_canceled));
