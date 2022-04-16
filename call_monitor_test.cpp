@@ -23,19 +23,19 @@ TEST(call_monitor_test, basic_test) {
     ctx.post([&] {
         call_monitor::report_hang(
             [&] {
-                log << "sleep(3s).begin\n";
+                log << "slow_sync_call/begin\n";
                 std::this_thread::sleep_for(3s);
-                log << "sleep(3s).end\n";
+                log << "slow_sync_call/end\n";
             },
-            "sleep 5s", 100ms);
+            "slow_sync_call", 100ms);
     });
 
     ctx.run();
 
     constexpr auto expected_log =
-        "sleep(3s).begin\n"
-        "CALL HANG: 'sleep 5s' >100ms\n"
-        "sleep(3s).end\n";
+        "slow_sync_call/begin\n"
+        "CALL HANG: 'slow_sync_call' >100ms\n"
+        "slow_sync_call/end\n";
     EXPECT_EQ(log.str(), expected_log);
 }
 
@@ -50,17 +50,17 @@ TEST(call_monitor_test, start_with_non_started_monitor_test) {
     ctx.post([&] {
         call_monitor::report_hang(
             [&] {
-                log << "sleep(3s).begin\n";
+                log << "slow_sync_call/begin\n";
                 std::this_thread::sleep_for(3s);
-                log << "sleep(3s).end\n";
+                log << "slow_sync_call/end\n";
             },
-            "sleep 5s", 100ms);
+            "slow_sync_call", 100ms);
     });
 
     ctx.run();
 
     constexpr auto expected_log =
-        "sleep(3s).begin\n"
-        "sleep(3s).end\n";
+        "slow_sync_call/begin\n"
+        "slow_sync_call/end\n";
     EXPECT_EQ(log.str(), expected_log);
 }
