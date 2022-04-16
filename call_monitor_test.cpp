@@ -51,6 +51,7 @@ TEST(call_monitor_test, start_with_non_started_monitor_test) {
         call_monitor::report_hang(
             [&] {
                 log << "slow_sync_call/begin\n";
+                std::this_thread::sleep_for(3s);
                 log << "slow_sync_call/end\n";
             },
             "slow_sync_call", 100ms);
