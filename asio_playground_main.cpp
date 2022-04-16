@@ -28,7 +28,7 @@ int main() {
     call_monitor::start([](std::string s) { std::cout << s; });
 
     ctx.post([&] {
-        call_monitor::report_hang(
+        call_monitor::sync_call(
             [&] {
                 std::cout << "sleep(5s).begin\n";
                 std::this_thread::sleep_for(5s);

@@ -21,7 +21,7 @@ TEST(call_monitor_test, basic_test) {
     asio::io_context ctx;
 
     ctx.post([&] {
-        call_monitor::report_hang(
+        call_monitor::sync_call(
             [&] {
                 log << "slow_sync_call/begin\n";
                 std::this_thread::sleep_for(3s);
@@ -48,7 +48,7 @@ TEST(call_monitor_test, start_with_non_started_monitor_test) {
     asio::io_context ctx;
 
     ctx.post([&] {
-        call_monitor::report_hang(
+        call_monitor::sync_call(
             [&] {
                 log << "slow_sync_call/begin\n";
                 std::this_thread::sleep_for(3s);
