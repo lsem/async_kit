@@ -1,9 +1,11 @@
-#include "detect_hang.hpp"
+#include "call_monitor.hpp"
+
 #include <chrono>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
+#include <thread>
 
 #include <asio/io_context.hpp>
 #include <asio/steady_timer.hpp>
@@ -24,7 +26,8 @@ int main() {
   std::cout << "asio playground\n";
   asio::io_context ctx;
 
-  call_monitor::start();
+  // warning: beware of thread safety here.
+  call_monitor::start([](std::string s) { std::cout << s; });
 
   ctx.post([&] {
     call_monitor::report_hang(
