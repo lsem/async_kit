@@ -63,15 +63,15 @@ class call_monitor_impl {
 call_monitor_impl the_instance;
 }  // namespace
 
-void start(std::function<void(std::string)> f) {
-    the_instance.run(std::move(f));
+void start(std::function<void(std::string)> log_fn) {
+    the_instance.run(std::move(log_fn));
 }
 
 void stop() {
     the_instance.stop();
 }
 
-void report_hang(std::function<void()> callable, std::string call_id, std::chrono::steady_clock::duration t) {
+void sync_call(std::function<void()> callable, std::string call_id, std::chrono::steady_clock::duration t) {
     auto guard = the_instance.call_guard(std::move(call_id), t);
     callable();
 }
