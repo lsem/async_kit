@@ -1,0 +1,6 @@
+﻿---
+BasedOnStyle: Chromium
+ColumnLimit: '120'
+IndentWidth: '4'
+
+...
