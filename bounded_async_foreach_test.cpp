@@ -379,3 +379,22 @@ TEST(bounded_async_foreach, first_operation_skips_done_callback) {
     std::vector<int> expected_invocations = input;
     EXPECT_EQ(done_invocations, expected_invocations);
 }
+
+TEST(bounded_async_foreach, finished_callback_gets_destructed) {
+    // assuming finished callbakc lifetime is the same as internal state lifetime we
+    // test for memory leaks while still having simple interface and usage.
+    asio::io_context ctx;
+
+    auto resource = std::make_shared<int>(10);
+
+    bounded_async_foreach(
+        3, std::vector<int>{1, 2, 3, 4, 5},
+        [&](auto element, auto done) {
+            async_sleep(ctx, 100ms, [resource, done = std::move(done)] { done(std::error_code()); });
+        },
+        [resource](std::error_code ec) {});
+
+    ctx.run();
+
+    EXPECT_EQ(resource.use_count(), 1);
+}
