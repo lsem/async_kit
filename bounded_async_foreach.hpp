@@ -21,7 +21,7 @@ void bounded_async_foreach(unsigned limit_n, Container c, Callback cb, FinishCal
         const unsigned n_workers;
         FinishCallback finished_cb;
         std::error_code exec_result = std::error_code();
-        std::function<void()> process_next;
+        std::function<void(std::shared_ptr<self_state>)> process_next;
 
         self_state(Container c, Callback cb, unsigned n, FinishCallback finished_cb)
             : c(std::move(c)),
@@ -34,7 +34,7 @@ void bounded_async_foreach(unsigned limit_n, Container c, Callback cb, FinishCal
 
     auto self = std::make_shared<self_state>(std::move(c), std::move(cb), limit_n, std::move(finished_cb));
 
-    self->process_next = [self]() {
+    self->process_next = [](std::shared_ptr<self_state> self) {
         if (self->it != std::cend(self->c)) {
             if (self->free_workers > 0) {
                 self->free_workers--;
@@ -50,9 +50,9 @@ void bounded_async_foreach(unsigned limit_n, Container c, Callback cb, FinishCal
                     } else {
                         // success, just go on to next one.
                     }
-                    self->process_next();
+                    self->process_next(self);
                 });
-                self->process_next();
+                self->process_next(self);
             }
         } else {
             // last element tries to find new work, non-last just fade out.
@@ -62,5 +62,5 @@ void bounded_async_foreach(unsigned limit_n, Container c, Callback cb, FinishCal
         }
     };
 
-    self->process_next();
+    self->process_next(self);
 }
