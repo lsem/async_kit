@@ -99,5 +99,29 @@ void test() {
     ssl_shutdown_with_timeout(socket2, [](std::error_code ec) {
         // done!
     });
+
+    // todo: no args
+    
+    // callback with results (e.g. scan)
+    // assuming we have some operation
+    auto scan_async = [](int socket, auto done_cb) {
+        if (socket == 0) {
+            return done_cb(make_error_code(std::errc::io_error), {});
+        }
+        done_cb(std::error_code(), 42); // success
+    };
+
+    scan_async(10, [](std::error_code ec, int scan_results) {
+
+    });
+
+    auto timed_scan_async = async_timed2(10, scan_async);
+    timed_scan_async(10, [](std::error_code ec, int scan_results) {
+        // ..
+    });
+
+    
 }
+
+
 
