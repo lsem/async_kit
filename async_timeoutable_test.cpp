@@ -189,3 +189,46 @@ TEST(async_timeoutable_tests, without_results__and_params_test) {
     EXPECT_EQ(wifi_scan_async_with_timeout_result, make_error_code(std::errc::is_a_directory));
     EXPECT_EQ(wifi_scan_async_with_timeout_result2, make_error_code(std::errc::timed_out));
 }
+
+TEST(async_timeoutable_tests, wrapped_callable_can_passed_as_rvalue) {
+    asio::io_context ctx;
+
+    auto wifi_scan_async = [&ctx, u = std::make_unique<int>(42)](auto scan_done) {
+        async_sleep(ctx, 1s, [scan_done] { scan_done(make_error_code(std::errc::io_error)); });
+    };
+
+    auto wifi_scan_async_with_timeout = async_timeoutable(ctx, std::move(wifi_scan_async));
+    std::optional<std::error_code> wifi_scan_async_with_timeout_result;
+    wifi_scan_async_with_timeout(10s, [&](std::error_code ec) { wifi_scan_async_with_timeout_result = ec; });
+
+    ctx.run();
+
+    EXPECT_EQ(wifi_scan_async_with_timeout_result, make_error_code(std::errc::io_error));
+}
+
+TEST(async_timeoutable_tests, wrapped_callable_can_passed_as_lvalue) {
+    asio::io_context ctx;
+
+    // use std function here which will call bad_function_call in case it was moved (I can't quickly find better way to
+    // check it).
+    std::function<void(std::function<void(std::error_code)>)> wifi_scan_async = [&ctx](auto scan_done) {
+        async_sleep(ctx, 1s, [scan_done] { scan_done(std::error_code()); });
+    };
+
+    auto wifi_scan_async_with_timeout = async_timeoutable(ctx, wifi_scan_async);
+    wifi_scan_async_with_timeout(10s, [](std::error_code ec) {});
+
+    // we expect that original wifi_scan_async has not been moved but copied so original one
+    // is callable and functioning correctly.
+    ASSERT_TRUE(wifi_scan_async != nullptr) << "decorated function was moved";
+    std::optional<std::error_code> wifi_scan_async_result;
+    wifi_scan_async([&](std::error_code ec) { wifi_scan_async_result = ec; });
+
+    ctx.run();
+
+    EXPECT_EQ(wifi_scan_async_result, std::error_code());
+}
+
+// TODO: separate test that callback can be std::function.
+// TODO: separate test that callback can be free function (simple case without templates and overloads)
+// TODO: separate test that callback can be free function (case with template and overloads)

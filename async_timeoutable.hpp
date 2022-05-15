@@ -53,7 +53,7 @@ struct control_block_t {
 // TODO: write documentation and usage examples.
 template <class Callable>
 auto async_timeoutable(asio::io_context& ctx, Callable&& c) {
-    return [c = std::move(c), &ctx](auto... args) {
+    return [c = std::forward<Callable>(c), &ctx](auto... args) {
         using namespace details;
 
         // TODO: write correct explanation
