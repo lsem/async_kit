@@ -354,4 +354,32 @@ TEST(async_timeoutable_tests, callable_can_be_template_if_lifting_employed) {
     ASSERT_EQ(result, make_error_code(std::errc::io_error));
 }
 
-// TODO: add test that after timeout resources should be freed.
+TEST(async_timeoutable_tests, after_timeout_resources_original_callback_should_be_destroyed) {
+    asio::io_context ctx;
+
+    // user may want to control lifetime of source  to results callback to control resources so
+    // we need to make sure that in case timeout occured, original operation if not cancelled
+    // should not prolong life of callback.
+
+    auto simple_async_function = [&ctx](auto done) {
+        async_sleep(ctx, 1s, [&ctx, done = std::move(done)] { done(std::error_code()); });
+    };
+
+    auto simple_async_function_with_timeout = async_timeoutable(ctx, simple_async_function);
+
+    auto resource_ptr = std::make_shared<int>(1);
+
+    simple_async_function_with_timeout(100ms, [&ctx, resource_ptr](std::error_code ec) {
+        ASSERT_EQ(ec, make_error_code(std::errc::timed_out));
+        // it is expected that only this ref and in outer scope exist.
+        std::cout << "timeout occured\n";
+        ctx.post([resource_ptr] {
+            ASSERT_EQ(resource_ptr.use_count(), 2);
+            std::cout << "assertions checked\n";
+        });
+    });
+
+    ASSERT_EQ(resource_ptr.use_count(), 2);
+
+    ctx.run();
+}

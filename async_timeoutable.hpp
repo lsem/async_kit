@@ -4,6 +4,7 @@
 #include <chrono>
 #include <functional>
 #include <iostream>
+#include <optional>
 #include <system_error>
 #include <type_traits>
 #include <utility>
@@ -77,21 +78,25 @@ auto async_timeoutable(asio::io_context& ctx, Callable&& c) {
         const auto input_args_indices = offset_sequence_t<1, std::make_index_sequence<sizeof...(args) - 2>>{};
         auto input_args = select_tuple_of_refs(std::move(args_as_tuple), input_args_indices);
 
+        // TODO: employ the same trick with control bloc as we do with done. this way we can get rid of boolean
+        // variables. first who comes, assigns nullopt and this is indication that it is second. this would also free
+        // resources.
+
         auto control_block = std::make_shared<control_block_t>(asio::steady_timer(ctx));
 
         // TODO: get rid of code duplication
         if constexpr (std::is_invocable_v<decltype(done), std::error_code>) {
-            auto done_ptr = std::make_shared<decltype(done)>(std::move(done));
+            auto done_ptr = std::make_shared<std::optional<decltype(done)>>(std::move(done));
 
             control_block->timeout_timer.expires_from_now(timeout_duration);
             control_block->timeout_timer.async_wait([done_ptr, control_block](std::error_code ec) {
                 if (!ec) {
                     if (!control_block->done_flag) {
                         control_block->timeout_flag = true;
-                        (*done_ptr)(make_error_code(std::errc::timed_out));
+                        (**done_ptr)(make_error_code(std::errc::timed_out));
+                        // free resources
+                        *done_ptr = std::nullopt;
                         return;
-                    } else {
-                        // ..?
                     }
                 } else if (ec != asio::error::operation_aborted) {
                     std::cerr << "async_timeoutable: timeout timer error: " << ec.message() << "\n";
@@ -102,22 +107,23 @@ auto async_timeoutable(asio::io_context& ctx, Callable&& c) {
                 if (!control_block->timeout_flag) {
                     control_block->done_flag = true;
                     control_block->timeout_timer.cancel();
-                    (*done_ptr)(ec);
+                    (**done_ptr)(ec);
                 }
             };
             auto patched_args = std::tuple_cat(std::move(input_args), std::tuple(patched_handler));
             std::apply(c, std::move(patched_args));
         } else {
-            auto done_ptr = std::make_shared<decltype(done)>(std::move(done));
+            auto done_ptr = std::make_shared<std::optional<decltype(done)>>(std::move(done));
 
             control_block->timeout_timer.expires_from_now(timeout_duration);
             control_block->timeout_timer.async_wait([done_ptr, control_block](std::error_code ec) {
                 if (!ec) {
                     if (!control_block->done_flag) {
                         control_block->timeout_flag = true;
-                        (*done_ptr)(make_error_code(std::errc::timed_out), default_val{});
+                        (**done_ptr)(make_error_code(std::errc::timed_out), default_val{});
+                        // free resources
+                        *done_ptr = std::nullopt;
                         return;
-                    } else {
                     }
                 } else if (ec != asio::error::operation_aborted) {
                     std::cerr << "async_timeoutable: timeout timer error: " << ec.message() << "\n";
@@ -128,7 +134,7 @@ auto async_timeoutable(asio::io_context& ctx, Callable&& c) {
                 if (!control_block->timeout_flag) {
                     control_block->done_flag = true;
                     control_block->timeout_timer.cancel();
-                    (*done_ptr)(ec, std::forward<decltype(r)>(r));
+                    (**done_ptr)(ec, std::forward<decltype(r)>(r));
                 }
             };
 
