@@ -33,8 +33,8 @@ struct default_val {
 };
 
 template <typename Tuple, std::size_t... Ints>
-auto select_tuple(Tuple&& tuple, std::index_sequence<Ints...>) {
-    return std::make_tuple(std::get<Ints>(std::forward<Tuple>(tuple))...);
+auto select_tuple_of_refs(Tuple&& tuple, std::index_sequence<Ints...>) {
+    return std::forward_as_tuple(std::get<Ints>(std::forward<Tuple>(tuple))...);
 }
 
 template <class T>
@@ -53,66 +53,69 @@ struct control_block_t {
 // TODO: write documentation and usage examples.
 template <class Callable>
 auto async_timeoutable(asio::io_context& ctx, Callable&& c) {
-    return [c = std::forward<Callable>(c), &ctx](auto... args) {
+    return [c = std::forward<Callable>(c), &ctx](auto&&... args) {
         using namespace details;
 
-        // TODO: write correct explanation
-        static_assert(sizeof...(args) >= 2);
+        // We expect the following layout of arguments: (timeout, a1, a2, ..., an, done_cb);
+        /// having that we need to extract (a1, a2, ..., an), append our own version of done_cb
+        // and pass it to callable. a1, a2, ..., an should be forwarded correctly.
 
-        std::tuple args_as_tuple{args...};
-        auto& timeout_duration = std::get<0>(args_as_tuple);
-        auto& done = std::get<sizeof...(args) - 1>(args_as_tuple);
+        static_assert(sizeof...(args) >= 2,
+                      "at least timeout and done_cb expected (expected signature: void(timeout, args...,  done_cb))");
+
+        auto args_as_tuple = std::forward_as_tuple(std::forward<decltype(args)>(args)...);
+
+        auto timeout_duration = std::get<0>(args_as_tuple);
+        auto done = std::get<sizeof...(args) - 1>(std::move(args_as_tuple));
 
         static_assert(is_duration<std::decay_t<decltype(timeout_duration)>>::value,
                       "first argument expected to be timeout of duration type");
-
-        // spell_type<decltype(done)> s;
         static_assert(std::is_invocable_v<decltype(done), std::error_code> ||
                           std::is_invocable_v<decltype(done), std::error_code, default_val&>,
                       "last argument expected to be callback");
 
-        // cut off first (timeout_duration) and last (callback) argument.
-        auto input_args =
-            select_tuple(args_as_tuple, offset_sequence_t<1, std::make_index_sequence<sizeof...(args) - 2>>{});
+        const auto input_args_indices = offset_sequence_t<1, std::make_index_sequence<sizeof...(args) - 2>>{};
+        auto input_args = select_tuple_of_refs(std::move(args_as_tuple), input_args_indices);
 
         auto control_block = std::make_shared<control_block_t>(asio::steady_timer(ctx));
 
         // TODO: get rid of code duplication
-        // TODO: forward where appropriate
-        // TODO: get rid of done copyability constraint.
         if constexpr (std::is_invocable_v<decltype(done), std::error_code>) {
+            auto done_ptr = std::make_shared<decltype(done)>(std::move(done));
+
             control_block->timeout_timer.expires_from_now(timeout_duration);
-            control_block->timeout_timer.async_wait([done, control_block](std::error_code ec) {
+            control_block->timeout_timer.async_wait([done_ptr, control_block](std::error_code ec) {
                 if (!ec) {
                     if (!control_block->done_flag) {
                         control_block->timeout_flag = true;
-                        done(make_error_code(std::errc::timed_out));
+                        (*done_ptr)(make_error_code(std::errc::timed_out));
                         return;
                     } else {
+                        // ..?
                     }
                 } else if (ec != asio::error::operation_aborted) {
                     std::cerr << "async_timeoutable: timeout timer error: " << ec.message() << "\n";
                 }
             });
 
-            auto on_handler = [done, control_block](std::error_code ec) {
-                if (control_block->timeout_flag) {
-                    // do nothing
-                } else {
+            auto patched_handler = [done_ptr, control_block](std::error_code ec) {
+                if (!control_block->timeout_flag) {
                     control_block->done_flag = true;
                     control_block->timeout_timer.cancel();
-                    done(ec);
+                    (*done_ptr)(ec);
                 }
             };
-            auto patched_args = std::tuple_cat(input_args, std::tuple(on_handler));
-            std::apply(c, patched_args);
+            auto patched_args = std::tuple_cat(std::move(input_args), std::tuple(patched_handler));
+            std::apply(c, std::move(patched_args));
         } else {
+            auto done_ptr = std::make_shared<decltype(done)>(std::move(done));
+
             control_block->timeout_timer.expires_from_now(timeout_duration);
-            control_block->timeout_timer.async_wait([done, control_block](std::error_code ec) {
+            control_block->timeout_timer.async_wait([done_ptr, control_block](std::error_code ec) {
                 if (!ec) {
                     if (!control_block->done_flag) {
                         control_block->timeout_flag = true;
-                        done(make_error_code(std::errc::timed_out), default_val{});
+                        (*done_ptr)(make_error_code(std::errc::timed_out), default_val{});
                         return;
                     } else {
                     }
@@ -121,18 +124,16 @@ auto async_timeoutable(asio::io_context& ctx, Callable&& c) {
                 }
             });
 
-            auto on_handler = [done, control_block](std::error_code ec, auto r) {
-                if (control_block->timeout_flag) {
-                    // do nothing
-                } else {
+            auto patched_handler = [done_ptr, control_block](std::error_code ec, auto&& r) {
+                if (!control_block->timeout_flag) {
                     control_block->done_flag = true;
                     control_block->timeout_timer.cancel();
-                    done(ec, r);
+                    (*done_ptr)(ec, std::forward<decltype(r)>(r));
                 }
             };
 
-            auto patched_args = std::tuple_cat(input_args, std::tuple(on_handler));
-            std::apply(c, patched_args);
+            auto patched_args = std::tuple_cat(std::move(input_args), std::tuple(patched_handler));
+            std::apply(c, std::move(patched_args));
         }
     };
 }
