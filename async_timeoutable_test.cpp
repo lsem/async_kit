@@ -418,9 +418,7 @@ struct simple_socket {
     void async_shutdown(Handler&& h) {
         // to simulate async long running process, we are going to have timer.
         m_timer.expires_from_now(m_simulated_shutdown_time);
-        m_timer.async_wait([](std::error_code ec) {
-            // ..
-        });
+        m_timer.async_wait([h = std::move(h)](std::error_code ec) { h(std::error_code()); });
     }
 
     void close() { m_timer.cancel(); }
@@ -483,5 +481,5 @@ TEST(async_timeoutable_tests, use_case_with_socket_2) {
 
     ctx.run();
 
-    ASSERT_EQ(result, make_error_code(std::errc::timed_out));
+    ASSERT_EQ(result, std::errc::timed_out);
 }
