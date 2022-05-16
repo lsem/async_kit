@@ -461,3 +461,27 @@ TEST(async_timeoutable_tests, use_case_with_socket) {
 
     ASSERT_EQ(result, make_error_code(std::errc::timed_out));
 }
+
+TEST(async_timeoutable_tests, use_case_with_socket_2) {
+    asio::io_context ctx;
+
+    simple_socket sock(ctx, 5s);
+
+    std::optional<std::error_code> result;
+    {
+        // similar to use_case_with_socket but this time we generate member-to-free-func adaptor on the fly,
+        // as rvalue. furthermore we remove it immidiately after running it.
+        auto shutdown_func_with_tm =
+            async_timeoutable(ctx, [](simple_socket& sock, auto done) { sock.async_shutdown(std::move(done)); });
+
+        shutdown_func_with_tm(10ms, sock, [&result, &sock](std::error_code ec) {
+            ASSERT_FALSE(result.has_value());
+            result = make_error_code(std::errc::timed_out);
+            sock.close();
+        });
+    }
+
+    ctx.run();
+
+    ASSERT_EQ(result, make_error_code(std::errc::timed_out));
+}

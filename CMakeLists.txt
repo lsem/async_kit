@@ -17,6 +17,10 @@ find_package(GTest CONFIG REQUIRED)
 
 set (CMAKE_CXX_STANDARD 17)
 
+# this is temporary
+add_compile_options(-fsanitize=address)
+add_link_options(-fsanitize=address)
+
 set(playground_main_cpp "asio_playground_main.cpp")
 
 file(GLOB HPP_FILES "*.hpp")
