@@ -378,6 +378,8 @@ TEST(async_timeoutable_tests, done_callback_destroyed_when_timeout) {
     ASSERT_EQ(resource_ptr.use_count(), 2);
 
     ctx.run();
+
+    ASSERT_EQ(resource_ptr.use_count(), 1);
 }
 
 TEST(async_timeoutable_tests, done_callback_destroyed_when_results) {
@@ -404,13 +406,58 @@ TEST(async_timeoutable_tests, done_callback_destroyed_when_results) {
     ASSERT_EQ(resource_ptr.use_count(), 2);
 
     ctx.run();
+
+    ASSERT_EQ(resource_ptr.use_count(), 1);
 }
 
-// question?
-//  who is going to own returned function?
-//  how user supposed to use it?
-/// with bounded async foreach it was autorun and owned itself,
-// using shared ptr.
-// probably, we need to use the same trick with done_callback. what if our lambda lives
-// as long as lives done callback.
-// TODO: write test for it.
+struct simple_socket {
+    explicit simple_socket(asio::io_context& ctx, std::chrono::steady_clock::duration simulated_shutdown_time)
+        : m_simulated_shutdown_time(simulated_shutdown_time), m_timer(ctx) {}
+
+    template <class Handler>
+    void async_shutdown(Handler&& h) {
+        // to simulate async long running process, we are going to have timer.
+        m_timer.expires_from_now(m_simulated_shutdown_time);
+        m_timer.async_wait([](std::error_code ec) {
+            // ..
+        });
+    }
+
+    void close() { m_timer.cancel(); }
+
+    std::chrono::steady_clock::duration m_simulated_shutdown_time;
+    asio::steady_timer m_timer;
+};
+
+TEST(async_timeoutable_tests, use_case_with_socket) {
+    asio::io_context ctx;
+
+    // imagine we have socket which has async operation shutdown.
+    simple_socket sock(ctx, 5s);
+
+    // we want to get shutdown functionality accept timeout
+
+    // lets turn member .async_shutdown to free function like object accepting socket as param.
+    // but we want to make sure that original function is temporary, even though referenced as lvalue.
+    std::function<void(std::chrono::steady_clock::duration, simple_socket&, std::function<void(std::error_code)>)>
+        shutdown_func_with_tm;
+    {
+        auto shutdown_func = [](simple_socket& sock, std::function<void(std::error_code)> done) {
+            sock.async_shutdown(std::move(done));
+        };
+        // passing as lvalue but we don't generally care as far as we don't have resources in
+        // shutdown_func (lambda capture list is empty).
+        shutdown_func_with_tm = async_timeoutable(ctx, shutdown_func);
+    }
+
+    std::optional<std::error_code> result;
+    shutdown_func_with_tm(10ms, sock, [&result, &sock](std::error_code ec) {
+        ASSERT_FALSE(result.has_value());
+        result = make_error_code(std::errc::timed_out);
+        sock.close();
+    });
+
+    ctx.run();
+
+    ASSERT_EQ(result, make_error_code(std::errc::timed_out));
+}
