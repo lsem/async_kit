@@ -106,8 +106,8 @@ auto async_timeoutable(asio::io_context& ctx, Callable&& c) {
             auto patched_handler = [done_ptr, control_block](std::error_code ec) {
                 if (!control_block->timeout_flag) {
                     control_block->done_flag = true;
-                    control_block->timeout_timer.cancel();
                     (**done_ptr)(ec);
+                    *done_ptr = std::nullopt;
                 }
             };
             auto patched_args = std::tuple_cat(std::move(input_args), std::tuple(patched_handler));
@@ -133,8 +133,8 @@ auto async_timeoutable(asio::io_context& ctx, Callable&& c) {
             auto patched_handler = [done_ptr, control_block](std::error_code ec, auto&& r) {
                 if (!control_block->timeout_flag) {
                     control_block->done_flag = true;
-                    control_block->timeout_timer.cancel();
                     (**done_ptr)(ec, std::forward<decltype(r)>(r));
+                    *done_ptr = std::nullopt;
                 }
             };
 
