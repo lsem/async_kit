@@ -8,4 +8,4 @@ C++17 needed.
 
 # Building
 
-`mkdir bld && cd bld && cmake .. && make -j`
+`mkdir bld && cd bld && cmake .. && make -j && ./async_kit_tests`
