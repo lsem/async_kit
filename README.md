@@ -5,3 +5,7 @@ Most things were invented in context of asynchrony based on Asio, but some of th
 
 Most things designed to be possible to use as single header library.
 C++17 needed.
+
+# Building
+
+`mkdir bld && cd bld && cmake .. && make -j`
