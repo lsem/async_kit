@@ -1,14 +1,14 @@
 #include "call_monitor.hpp"
 
+#include <asio/io_context.hpp>
+#include <asio/steady_timer.hpp>
 #include <chrono>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <vector>
-
-#include <asio/io_context.hpp>
-#include <asio/steady_timer.hpp>
 
 #include "bounded_async_foreach.hpp"
 
@@ -17,28 +17,51 @@ using namespace std::chrono_literals;
 template <typename Callback>
 void async_sleep(asio::io_context& ctx, std::chrono::steady_clock::duration t, Callback&& cb) {
     auto timer = std::make_shared<asio::steady_timer>(ctx, t);
-    timer->async_wait([timer, cb = std::forward<Callback>(cb)](std::error_code ec) { cb(); });
+    timer->async_wait([timer, cb = std::move(cb)](std::error_code ec) { cb(ec); });
 }
 
 int main() {
-    std::cout << "asio playground\n";
     asio::io_context ctx;
 
-    // warning: beware of thread safety here.
-    call_monitor::start([](std::string s) { std::cout << s; });
+    // thunks with priorities
+    std::vector<std::tuple<std::function<void()>, int>> thunks;
 
-    ctx.post([&] {
-        call_monitor::sync_call(
-            [&] {
-                std::cout << "sleep(5s).begin\n";
-                std::this_thread::sleep_for(5s);
-                std::cout << "sleep(5s).end\n";
-            },
-            "sleep 5s", 1s);
+    auto ready = [&thunks, &ctx]() {
+        std::sort(thunks.begin(), thunks.end(),
+                  [](auto& left, auto& right) { return std::get<int>(left) < std::get<int>(right); });
 
-        std::cout << "sleep more\n";
-        std::this_thread::sleep_for(3s);
-        std::cout << "end\n";
+        // call deferred handelrs when they are now in correct order
+        for (auto& thunk : thunks) {
+            ctx.post([thunk = std::move(thunk)] { std::get<std::function<void()>>(thunk)(); });
+        }
+    };
+
+    // this is logically op1
+    async_sleep(ctx, 1s, [&thunks, ready](std::error_code ec) {
+        std::cout << "DEBUG: RECEIVE done\n";
+        auto thunk = [ec]() {
+            // handling happens here.
+            // ..
+            std::cout << "RECEIVE handler working, error code: " << ec.message() << "\n";
+        };
+        thunks.emplace_back(std::move(thunk), 1);  // 1 priority is lower than 1
+        if (thunks.size() == 2) {
+            ready();
+        }
+    });
+
+    // and this is logically op2
+    async_sleep(ctx, 2s, [&thunks, ready](std::error_code ec) {
+        std::cout << "DEBUG: SEND done\n";
+        auto thunk = [ec]() {
+            // handling happens here.
+            // ..
+            std::cout << "SEND handler working, error code: " << ec.message() << "\n";
+        };
+        thunks.emplace_back(std::move(thunk), 0);  // 0 priority is higher than 1
+        if (thunks.size() == 2) {
+            ready();
+        }
     });
 
     ctx.run();
