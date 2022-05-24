@@ -2,6 +2,7 @@
 
 #include <asio/io_context.hpp>
 #include <functional>
+#include <iostream>
 #include <list>
 #include <memory>
 #include <vector>
@@ -12,7 +13,19 @@ class async_critical_section : public std::enable_shared_from_this<async_critica
    public:
     explicit async_critical_section(asio::io_context& ctx) : m_ctx(ctx) {}
 
-   private:
+    ~async_critical_section() {
+        // we still need to call callbacks.
+        if (!m_waiting_list.empty()) {
+            for (auto& cb : m_waiting_list) {
+                m_ctx.post([cb = std::move(cb)] {
+                    // in case of error we give unfunctional/empty done callback.
+                    cb(make_error_code(std::errc::operation_canceled), []() {});
+                });
+            }
+        }
+    }
+
+    // TODO: std::function does not support move-only callbacks.
     using next_callback_t = std::function<void(std::error_code, std::function<void()>)>;
 
    public:
@@ -21,6 +34,7 @@ class async_critical_section : public std::enable_shared_from_this<async_critica
         assert(shared_from_this() && "created not as shared pointer");
         if (m_busy) {
             m_waiting_list.push_back(std::move(cb));
+            // std::cout << "list size: " << m_waiting_list.size() << "\n";
         } else {
             m_busy = true;
             // got its lock.
@@ -51,6 +65,7 @@ class async_critical_section : public std::enable_shared_from_this<async_critica
                 }
             });
         } else {
+            // std::cout << "became free\n";
             m_busy = false;
         }
     }

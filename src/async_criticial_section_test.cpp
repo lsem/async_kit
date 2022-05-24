@@ -64,7 +64,7 @@ TEST(async_critical_section_tests, randomized_tests) {
 
     for (int i = 0; i < 100; ++i) {
         // make random pause and then try enter
-        auto entry_pause = std::chrono::milliseconds(rand() % 10 * 10);
+        auto entry_pause = std::chrono::milliseconds(rand() % 1000 * 7);
         async_sleep(ctx, entry_pause, [&ctx, &events, cs, i] {
             cs->async_enter([&ctx, i, cs, &events](std::error_code ec, auto done_cb) {
                 ASSERT_FALSE(ec);
