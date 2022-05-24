@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "bounded_async_foreach.hpp"
+#include "ordered_async_ops.hpp"
 
 using namespace std::chrono_literals;
 
@@ -20,7 +21,7 @@ void async_sleep(asio::io_context& ctx, std::chrono::steady_clock::duration t, C
     timer->async_wait([timer, cb = std::move(cb)](std::error_code ec) { cb(ec); });
 }
 
-int main() {
+int main2() {
     asio::io_context ctx;
 
     // thunks with priorities
@@ -65,4 +66,33 @@ int main() {
     });
 
     ctx.run();
+    return 0;
 }
+// OUTPUT:
+// liubomyrsemkiv@LiubomyrSemkiv ~/w/a/bld (main)> ./async_kit_playground
+// DEBUG: RECEIVE returned
+// DEBUG: SEND returned
+// SEND handler working, error code: Success
+// RECEIVE handler working, error code: Success
+
+int main() {
+    asio::io_context ctx;
+
+    ordered_async_ops ordered(ctx);
+
+    // this is logically op1
+    async_sleep(ctx, 1s, ordered(1, [](std::error_code ec) {
+                    std::cout << "RECEIVE handler working, error code: " << ec.message() << "\n";
+                }));
+
+    // and this is logically op2
+    async_sleep(ctx, 2s, ordered(0, [](std::error_code ec) {
+                    std::cout << "SEND handler working, error code: " << ec.message() << "\n";
+                }));
+
+    ctx.run();
+}
+// OUTPUT:
+//  SEND handler working, error code: Success
+//  RECEIVE handler working, error code: Success
+//
