@@ -30,8 +30,6 @@ class async_critical_section : public std::enable_shared_from_this<async_critica
 
     void do_run(next_callback_t cb) {
         cb(std::error_code(), [weak_this = weak_from_this()]() {
-            // lock released, we need to run next somehow, the thing is that we
-            // need shared pointer now.
             if (auto this_ = weak_this.lock()) {
                 this_->m_ctx.post([weak_this = this_->weak_from_this()] {
                     if (auto this_ = weak_this.lock()) {
