@@ -58,3 +58,20 @@ TEST(ordered_async_ops_tests, three_processes_test) {
 
     EXPECT_EQ(log, std::vector<std::string>({"FIRST handler", "SECOND handler", "THIRD handler"}));
 }
+
+TEST(ordered_async_ops_tests, instance_of_oredere_can_be_removed_test) {
+    asio::io_context ctx;
+
+    std::vector<std::string> log;
+
+    {
+        ordered_async_ops ordered(ctx);
+        async_sleep(ctx, 3s, ordered(1, [&](std::error_code ec) { log.push_back("FIRST handler"); }));
+        async_sleep(ctx, 2s, ordered(2, [&](std::error_code ec) { log.push_back("SECOND handler"); }));
+        async_sleep(ctx, 1s, ordered(3, [&](std::error_code ec) { log.push_back("THIRD handler"); }));
+    }
+
+    ctx.run();
+
+    EXPECT_EQ(log, std::vector<std::string>({"FIRST handler", "SECOND handler", "THIRD handler"}));
+}
