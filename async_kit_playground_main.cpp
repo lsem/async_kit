@@ -37,7 +37,7 @@ int main2() {
         }
     };
 
-    // this is logically op1
+    // this is logically op2
     async_sleep(ctx, 1s, [&thunks, ready](std::error_code ec) {
         std::cout << "DEBUG: RECEIVE done\n";
         auto thunk = [ec]() {
@@ -51,7 +51,7 @@ int main2() {
         }
     });
 
-    // and this is logically op2
+    // and this is logically op1
     async_sleep(ctx, 2s, [&thunks, ready](std::error_code ec) {
         std::cout << "DEBUG: SEND done\n";
         auto thunk = [ec]() {
@@ -80,12 +80,12 @@ int main() {
 
     ordered_async_ops ordered(ctx);
 
-    // this is logically op1
+    // this is logically op2
     async_sleep(ctx, 1s, ordered(1, [](std::error_code ec) {
                     std::cout << "RECEIVE handler working, error code: " << ec.message() << "\n";
                 }));
 
-    // and this is logically op2
+    // and this is logically op1
     async_sleep(ctx, 2s, ordered(0, [](std::error_code ec) {
                     std::cout << "SEND handler working, error code: " << ec.message() << "\n";
                 }));
