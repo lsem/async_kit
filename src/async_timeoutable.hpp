@@ -38,6 +38,8 @@ auto select_tuple_of_refs(Tuple&& tuple, std::index_sequence<Ints...>) {
     return std::forward_as_tuple(std::get<Ints>(std::forward<Tuple>(tuple))...);
 }
 
+
+
 template <class T>
 struct spell_type;
 
