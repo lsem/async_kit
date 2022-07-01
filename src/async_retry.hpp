@@ -50,6 +50,10 @@ struct control_block_with_result {
 
 template <class AsyncFunction>
 auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts = {}) {
+    if (opts.attempts == 0) {
+        throw std::invalid_argument("0 attempts not supported by async_retry");
+    }
+
     return [f = std::move(f), opts = std::move(opts), &ctx](auto&&... args) {
         static_assert(std::is_invocable_v<AsyncFunction, decltype(args)...>);
 
@@ -77,7 +81,7 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
             };
 
             shared_control_block->custom_handler = [&ctx, done = std::move(done),
-                                             shared_control_block](std::error_code ec) mutable {
+                                                    shared_control_block](std::error_code ec) mutable {
                 auto free_resources_async = [&ctx](std::shared_ptr<control_block> shared_control_block) {
                     ctx.post([shared_control_block] {
                         shared_control_block->custom_handler = nullptr;
@@ -95,7 +99,7 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                     } else {
                         // use 1s sleep before doing next attemp.
                         std::cout << "dbg: next attempt will take place in 1s\n";
-                        async_sleep(ctx, 1s, [shared_control_block](std::error_code ec) {
+                        async_sleep(ctx, shared_control_block->opts.pause, [shared_control_block](std::error_code ec) {
                             std::cout << "dbg: attempt " << shared_control_block->attempt << "..\n";
                             shared_control_block->thunk_f();
                         });
@@ -129,7 +133,7 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
             };
 
             shared_control_block->custom_handler = [&ctx, done = std::move(done), shared_control_block](
-                                                std::error_code ec, async_result_type r) mutable {
+                                                       std::error_code ec, async_result_type r) mutable {
                 auto free_resources_async =
                     [&ctx](std::shared_ptr<control_block_with_result<async_result_type>> shared_control_block) {
                         ctx.post([shared_control_block] {
@@ -148,7 +152,7 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                     } else {
                         // use 1s sleep before doing next attemp.
                         std::cout << "dbg: next attempt will take place in 1s\n";
-                        async_sleep(ctx, 1s, [shared_control_block](std::error_code ec) {
+                        async_sleep(ctx, shared_control_block->opts.pause, [shared_control_block](std::error_code ec) {
                             std::cout << "dbg: attempt " << shared_control_block->attempt << "..\n";
                             shared_control_block->thunk_f();
                         });
@@ -160,6 +164,7 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                     done(ec, std::move(r));
                 }
             };
+
             std::cout << "dbg: attempt " << shared_control_block->attempt << "..\n";
             shared_control_block->thunk_f();
         }
