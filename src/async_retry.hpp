@@ -32,7 +32,7 @@ struct control_block {
     control_block(async_retry_opts opts) : opts(std::move(opts)) {}
 
     thunk_type thunk_f;
-    callback_type handler;
+    callback_type custom_handler;
 };
 
 template <class R>
@@ -45,7 +45,7 @@ struct control_block_with_result {
     int attempt = 1;
     const async_retry_opts opts;
     thunk_type thunk_f;
-    callback_type handler;
+    callback_type custom_handler;
 };
 
 template <class AsyncFunction>
@@ -71,16 +71,16 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                                              input_args = std::move(input_args)]() {
                 // we cannot move our own handler because we need it for more than one attempt so we create
                 // one more wrapper.
-                auto wrapper = [shared_control_block](std::error_code ec) { shared_control_block->handler(ec); };
+                auto wrapper = [shared_control_block](std::error_code ec) { shared_control_block->custom_handler(ec); };
                 auto all_args = std::tuple_cat(std::move(input_args), std::tuple{wrapper});
                 std::apply(f, std::move(all_args));
             };
 
-            shared_control_block->handler = [&ctx, done = std::move(done),
+            shared_control_block->custom_handler = [&ctx, done = std::move(done),
                                              shared_control_block](std::error_code ec) mutable {
                 auto free_resources_async = [&ctx](std::shared_ptr<control_block> shared_control_block) {
                     ctx.post([shared_control_block] {
-                        shared_control_block->handler = nullptr;
+                        shared_control_block->custom_handler = nullptr;
                         shared_control_block->thunk_f = nullptr;
                     });
                 };
@@ -122,18 +122,18 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                 // we cannot move our own handler because we need it for more than one attempt so we create
                 // one more wrapper.
                 auto wrapper = [shared_control_block](std::error_code ec, async_result_type r) {
-                    shared_control_block->handler(ec, std::move(r));
+                    shared_control_block->custom_handler(ec, std::move(r));
                 };
                 auto all_args = std::tuple_cat(std::move(input_args), std::tuple{wrapper});
                 std::apply(f, std::move(all_args));
             };
 
-            shared_control_block->handler = [&ctx, done = std::move(done), shared_control_block](
+            shared_control_block->custom_handler = [&ctx, done = std::move(done), shared_control_block](
                                                 std::error_code ec, async_result_type r) mutable {
                 auto free_resources_async =
                     [&ctx](std::shared_ptr<control_block_with_result<async_result_type>> shared_control_block) {
                         ctx.post([shared_control_block] {
-                            shared_control_block->handler = nullptr;
+                            shared_control_block->custom_handler = nullptr;
                             shared_control_block->thunk_f = nullptr;
                         });
                     };
