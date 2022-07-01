@@ -19,6 +19,8 @@ void async_sleep(asio::io_context& ctx, std::chrono::steady_clock::duration t, C
 }
 }  // namespace
 
+using namespace lsem::async;
+
 TEST(async_timeoutable_tests, with_results_test) {
     asio::io_context ctx;
 

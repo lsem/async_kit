@@ -9,39 +9,16 @@
 #include <type_traits>
 #include <utility>
 
-namespace details {
-template <std::size_t N, typename Seq>
-struct offset_sequence;
+#include "utils.hpp"
 
-template <std::size_t N, std::size_t... Ints>
-struct offset_sequence<N, std::index_sequence<Ints...>> {
-    using type = std::index_sequence<Ints + N...>;
-};
-template <std::size_t N, typename Seq>
-using offset_sequence_t = typename offset_sequence<N, Seq>::type;
+namespace lsem::async {
+
+namespace details {
 
 template <class T>
 struct is_duration : std::false_type {};
 template <class Rep, class Period>
 struct is_duration<std::chrono::duration<Rep, Period>> : std::true_type {};
-
-// passpartu
-struct default_val {
-    template <class T>
-    operator T() const {
-        return T{};
-    }
-};
-
-template <typename Tuple, std::size_t... Ints>
-auto select_tuple_of_refs(Tuple&& tuple, std::index_sequence<Ints...>) {
-    return std::forward_as_tuple(std::get<Ints>(std::forward<Tuple>(tuple))...);
-}
-
-
-
-template <class T>
-struct spell_type;
 
 struct control_block_t {
     bool timeout_flag = false;
@@ -74,11 +51,11 @@ auto async_timeoutable(asio::io_context& ctx, Callable&& c) {
         static_assert(is_duration<std::decay_t<decltype(timeout_duration)>>::value,
                       "first argument expected to be timeout of duration type");
         static_assert(std::is_invocable_v<decltype(done), std::error_code> ||
-                          std::is_invocable_v<decltype(done), std::error_code, default_val&>,
+                          std::is_invocable_v<decltype(done), std::error_code, utils::default_val&>,
                       "last argument expected to be callback");
 
-        const auto input_args_indices = offset_sequence_t<1, std::make_index_sequence<sizeof...(args) - 2>>{};
-        auto input_args = select_tuple_of_refs(std::move(args_as_tuple), input_args_indices);
+        const auto input_args_indices = utils::offset_sequence_t<1, std::make_index_sequence<sizeof...(args) - 2>>{};
+        auto input_args = utils::select_tuple_of_refs(std::move(args_as_tuple), input_args_indices);
 
         // TODO: employ the same trick with control bloc as we do with done. this way we can get rid of boolean
         // variables. first who comes, assigns nullopt and this is indication that it is second. this would also free
@@ -124,7 +101,7 @@ auto async_timeoutable(asio::io_context& ctx, Callable&& c) {
                 if (!ec) {
                     if (!control_block->done_flag) {
                         control_block->timeout_flag = true;
-                        (**done_ptr)(make_error_code(std::errc::timed_out), default_val{});
+                        (**done_ptr)(make_error_code(std::errc::timed_out), utils::default_val{});
                         // free resources
                         *done_ptr = std::nullopt;
                         return;
@@ -149,3 +126,5 @@ auto async_timeoutable(asio::io_context& ctx, Callable&& c) {
         }
     };
 }
+
+}  // namespace lsem::async
