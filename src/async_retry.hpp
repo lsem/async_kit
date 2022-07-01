@@ -22,6 +22,8 @@ struct async_retry_opts {
     std::chrono::steady_clock::duration pause = 1s;
 };
 
+namespace details {
+
 struct control_block {
     int attempt = 1;
     const async_retry_opts opts;
@@ -47,6 +49,7 @@ struct control_block_with_result {
     thunk_type thunk_f;
     callback_type custom_handler;
 };
+}  // namespace details
 
 template <class AsyncFunction>
 auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts = {}) {
@@ -69,7 +72,7 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                       "last argument expected to be callback");
 
         if constexpr (std::is_invocable_v<decltype(done), std::error_code>) {
-            auto shared_control_block = std::make_shared<control_block>(std::move(opts));
+            auto shared_control_block = std::make_shared<details::control_block>(std::move(opts));
 
             shared_control_block->thunk_f = [shared_control_block, f = std::move(f),
                                              input_args = std::move(input_args)]() {
@@ -82,7 +85,7 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
 
             shared_control_block->custom_handler = [&ctx, done = std::move(done),
                                                     shared_control_block](std::error_code ec) mutable {
-                auto free_resources_async = [&ctx](std::shared_ptr<control_block> shared_control_block) {
+                auto free_resources_async = [&ctx](std::shared_ptr<details::control_block> shared_control_block) {
                     ctx.post([shared_control_block] {
                         shared_control_block->custom_handler = nullptr;
                         shared_control_block->thunk_f = nullptr;
@@ -119,7 +122,8 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
 
             using async_result_type = utils::result_type_t<decltype(done)>;
 
-            auto shared_control_block = std::make_shared<control_block_with_result<async_result_type>>(std::move(opts));
+            auto shared_control_block =
+                std::make_shared<details::control_block_with_result<async_result_type>>(std::move(opts));
 
             shared_control_block->thunk_f = [shared_control_block, f = std::move(f),
                                              input_args = std::move(input_args)]() {
@@ -135,7 +139,8 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
             shared_control_block->custom_handler = [&ctx, done = std::move(done), shared_control_block](
                                                        std::error_code ec, async_result_type r) mutable {
                 auto free_resources_async =
-                    [&ctx](std::shared_ptr<control_block_with_result<async_result_type>> shared_control_block) {
+                    [&ctx](
+                        std::shared_ptr<details::control_block_with_result<async_result_type>> shared_control_block) {
                         ctx.post([shared_control_block] {
                             shared_control_block->custom_handler = nullptr;
                             shared_control_block->thunk_f = nullptr;
