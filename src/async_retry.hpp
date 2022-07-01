@@ -4,8 +4,6 @@
 #include <asio/steady_timer.hpp>
 
 #include <function2/function2.hpp>
-#include <functional>
-#include <iostream>  // todo: get rid of this.
 
 namespace lsem::async {
 
@@ -93,29 +91,22 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                 };
 
                 if (ec) {
-                    std::cout << "dbg: failed with error code: " << ec.message() << "\n";
                     if (shared_control_block->attempt++ == shared_control_block->opts.attempts) {
-                        std::cout << "dbg: attempts limit reached\n";
                         free_resources_async(shared_control_block);
                         done(ec);  // q: only last error, what about others?
                         return;
                     } else {
                         // use 1s sleep before doing next attemp.
-                        std::cout << "dbg: next attempt will take place in 1s\n";
-                        async_sleep(ctx, shared_control_block->opts.pause, [shared_control_block](std::error_code ec) {
-                            std::cout << "dbg: attempt " << shared_control_block->attempt << "..\n";
-                            shared_control_block->thunk_f();
-                        });
+                        async_sleep(ctx, shared_control_block->opts.pause,
+                                    [shared_control_block](std::error_code ec) { shared_control_block->thunk_f(); });
                         return;
                     }
                 } else {
-                    std::cout << "dbg: success\n";
                     free_resources_async(shared_control_block);
                     done(ec);
                 }
             };
 
-            std::cout << "dbg: attempt " << shared_control_block->attempt << "..\n";
             shared_control_block->thunk_f();
         } else {
             // TODO: get rid of code duplication
@@ -148,29 +139,22 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                     };
 
                 if (ec) {
-                    std::cout << "dbg: failed with error code: " << ec.message() << "\n";
                     if (shared_control_block->attempt++ == shared_control_block->opts.attempts) {
-                        std::cout << "dbg: attempts limit reached\n";
                         free_resources_async(shared_control_block);
                         done(ec, async_result_type{});  // q: only last error, what about others?
                         return;
                     } else {
                         // use 1s sleep before doing next attemp.
-                        std::cout << "dbg: next attempt will take place in 1s\n";
-                        async_sleep(ctx, shared_control_block->opts.pause, [shared_control_block](std::error_code ec) {
-                            std::cout << "dbg: attempt " << shared_control_block->attempt << "..\n";
-                            shared_control_block->thunk_f();
-                        });
+                        async_sleep(ctx, shared_control_block->opts.pause,
+                                    [shared_control_block](std::error_code ec) { shared_control_block->thunk_f(); });
                         return;
                     }
                 } else {
-                    std::cout << "dbg: success\n";
                     free_resources_async(shared_control_block);
                     done(ec, std::move(r));
                 }
             };
 
-            std::cout << "dbg: attempt " << shared_control_block->attempt << "..\n";
             shared_control_block->thunk_f();
         }
     };
