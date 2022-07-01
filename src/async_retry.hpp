@@ -3,6 +3,7 @@
 #include <asio/io_context.hpp>
 #include <asio/steady_timer.hpp>
 
+#include <function2/function2.hpp>
 #include <functional>
 #include <iostream>  // todo: get rid of this.
 
@@ -25,24 +26,24 @@ struct control_block {
     int attempt = 1;
     const async_retry_opts opts;
 
-    control_block(std::function<void(std::function<void(std::error_code)>)> thunk_f, async_retry_opts opts)
-        : thunk_f(std::move(thunk_f)), opts(std::move(opts)) {}
+    using callback_type = fu2::unique_function<void(std::error_code)>;
+    using thunk_type = fu2::unique_function<void()>;
 
-    std::function<void(std::function<void(std::error_code)>)> thunk_f;
-    std::function<void(std::error_code)> handler;
+    control_block(async_retry_opts opts) : opts(std::move(opts)) {}
+
+    thunk_type thunk_f;
+    callback_type handler;
 };
 
 template <class R>
 struct control_block_with_result {
+    using callback_type = fu2::unique_function<void(std::error_code, R)>;
+    using thunk_type = fu2::unique_function<void()>;
+
+    explicit control_block_with_result(async_retry_opts opts) : opts(std::move(opts)) {}
+
     int attempt = 1;
     const async_retry_opts opts;
-
-    using callback_type = std::function<void(std::error_code, R)>;
-    using thunk_type = std::function<void(callback_type)>;
-
-    control_block_with_result(thunk_type thunk_f, async_retry_opts opts)
-        : thunk_f(std::move(thunk_f)), opts(std::move(opts)) {}
-
     thunk_type thunk_f;
     callback_type handler;
 };
@@ -53,6 +54,7 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
         static_assert(std::is_invocable_v<AsyncFunction, decltype(args)...>);
 
         auto args_as_tuple = std::forward_as_tuple(std::forward<decltype(args)>(args)...);
+
         auto done = std::get<sizeof...(args) - 1>(std::move(args_as_tuple));
 
         const auto input_args_indices = std::make_index_sequence<sizeof...(args) - 1>{};
@@ -63,18 +65,24 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                       "last argument expected to be callback");
 
         if constexpr (std::is_invocable_v<decltype(done), std::error_code>) {
-            std::function<void(std::function<void(std::error_code)>)> thunk_f =
-                [f = std::move(f), input_args = std::move(input_args)](std::function<void(std::error_code)> cb) {
-                    auto all_args = std::tuple_cat(std::move(input_args), std::tuple(cb));
-                    std::apply(f, std::move(all_args));
-                };
+            auto shared_control_block = std::make_shared<control_block>(std::move(opts));
 
-            auto shared_control_block = std::make_shared<control_block>(std::move(thunk_f), std::move(opts));
+            shared_control_block->thunk_f = [shared_control_block, f = std::move(f),
+                                             input_args = std::move(input_args)]() {
+                // we cannot move our own handler because we need it for more than one attempt so we create
+                // one more wrapper.
+                auto wrapper = [shared_control_block](std::error_code ec) { shared_control_block->handler(ec); };
+                auto all_args = std::tuple_cat(std::move(input_args), std::tuple{wrapper});
+                std::apply(f, std::move(all_args));
+            };
 
             shared_control_block->handler = [&ctx, done = std::move(done),
                                              shared_control_block](std::error_code ec) mutable {
                 auto free_resources_async = [&ctx](std::shared_ptr<control_block> shared_control_block) {
-                    ctx.post([shared_control_block] { shared_control_block->handler = nullptr; });
+                    ctx.post([shared_control_block] {
+                        shared_control_block->handler = nullptr;
+                        shared_control_block->thunk_f = nullptr;
+                    });
                 };
 
                 if (ec) {
@@ -89,7 +97,7 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                         std::cout << "dbg: next attempt will take place in 1s\n";
                         async_sleep(ctx, 1s, [shared_control_block](std::error_code ec) {
                             std::cout << "dbg: attempt " << shared_control_block->attempt << "..\n";
-                            shared_control_block->thunk_f(shared_control_block->handler);
+                            shared_control_block->thunk_f();
                         });
                         return;
                     }
@@ -101,27 +109,33 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
             };
 
             std::cout << "dbg: attempt " << shared_control_block->attempt << "..\n";
-            shared_control_block->thunk_f(shared_control_block->handler);
+            shared_control_block->thunk_f();
         } else {
             // TODO: get rid of code duplication
 
             using async_result_type = utils::result_type_t<decltype(done)>;
 
-            std::function<void(std::function<void(std::error_code, async_result_type)>)> thunk_f =
-                [f = std::move(f),
-                 input_args = std::move(input_args)](std::function<void(std::error_code, async_result_type)> cb) {
-                    auto all_args = std::tuple_cat(std::move(input_args), std::tuple(cb));
-                    std::apply(f, std::move(all_args));
-                };
+            auto shared_control_block = std::make_shared<control_block_with_result<async_result_type>>(std::move(opts));
 
-            auto shared_control_block =
-                std::make_shared<control_block_with_result<async_result_type>>(std::move(thunk_f), std::move(opts));
+            shared_control_block->thunk_f = [shared_control_block, f = std::move(f),
+                                             input_args = std::move(input_args)]() {
+                // we cannot move our own handler because we need it for more than one attempt so we create
+                // one more wrapper.
+                auto wrapper = [shared_control_block](std::error_code ec, async_result_type r) {
+                    shared_control_block->handler(ec, std::move(r));
+                };
+                auto all_args = std::tuple_cat(std::move(input_args), std::tuple{wrapper});
+                std::apply(f, std::move(all_args));
+            };
 
             shared_control_block->handler = [&ctx, done = std::move(done), shared_control_block](
                                                 std::error_code ec, async_result_type r) mutable {
                 auto free_resources_async =
                     [&ctx](std::shared_ptr<control_block_with_result<async_result_type>> shared_control_block) {
-                        ctx.post([shared_control_block] { shared_control_block->handler = nullptr; });
+                        ctx.post([shared_control_block] {
+                            shared_control_block->handler = nullptr;
+                            shared_control_block->thunk_f = nullptr;
+                        });
                     };
 
                 if (ec) {
@@ -136,18 +150,18 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                         std::cout << "dbg: next attempt will take place in 1s\n";
                         async_sleep(ctx, 1s, [shared_control_block](std::error_code ec) {
                             std::cout << "dbg: attempt " << shared_control_block->attempt << "..\n";
-                            shared_control_block->thunk_f(shared_control_block->handler);
+                            shared_control_block->thunk_f();
                         });
                         return;
                     }
                 } else {
                     std::cout << "dbg: success\n";
                     free_resources_async(shared_control_block);
-                    done(ec, r);
+                    done(ec, std::move(r));
                 }
             };
             std::cout << "dbg: attempt " << shared_control_block->attempt << "..\n";
-            shared_control_block->thunk_f(shared_control_block->handler);
+            shared_control_block->thunk_f();
         }
     };
 }
