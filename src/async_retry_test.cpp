@@ -334,3 +334,104 @@ TEST(async_retry_tests, options_are_respected__zero_attempts) {
 
     EXPECT_THROW({ async_retry(ctx, async_op, {.attempts = 0}); }, std::invalid_argument);
 }
+
+TEST(async_retry_tests, cancel_test__with_error) {
+    asio::io_context ctx;
+
+    // async op returning unique_ptr as result.
+    int called_times = 0;
+    auto async_op = [&called_times](asio::io_context& ctx, auto done_cb) {
+        called_times++;
+        done_cb(make_error_code(std::errc::io_error), 0);
+    };
+
+    cancellation_token cancel_token;
+    auto async_op_with_retry = async_retry(ctx, async_op, {.attempts = 3, .pause = 1s}, cancel_token);
+
+    std::optional<std::tuple<std::error_code, int>> actual_result;
+    std::chrono::steady_clock::duration time_taken;
+
+    auto start_time = std::chrono::steady_clock::now();
+
+    async_op_with_retry(ctx, [&](std::error_code ec, int r) {
+        actual_result = std::tuple{ec, r};
+        time_taken = std::chrono::steady_clock::now() - start_time;
+    });
+
+    cancel_token.cancel();
+
+    ctx.run();
+    ASSERT_TRUE(actual_result.has_value());
+    EXPECT_EQ(std::get<0>(actual_result.value()), make_error_code(asio::error::operation_aborted));
+    EXPECT_EQ(called_times, 1);
+    EXPECT_NEAR(std::chrono::duration_cast<std::chrono::milliseconds>(time_taken).count(), 0, 5);
+}
+
+TEST(async_retry_tests, cancel_on_destruction_test) {
+    asio::io_context ctx;
+
+    // async op returning unique_ptr as result.
+    int called_times = 0;
+    auto async_op = [&called_times](asio::io_context& ctx, auto done_cb) {
+        called_times++;
+        done_cb(make_error_code(std::errc::io_error), 0);
+    };
+
+    auto cancel_token_ptr = std::make_unique<cancellation_token>();
+    auto async_op_with_retry = async_retry(ctx, async_op, {.attempts = 3, .pause = 1s}, *cancel_token_ptr);
+
+    std::optional<std::tuple<std::error_code, int>> actual_result;
+    std::chrono::steady_clock::duration time_taken;
+
+    auto start_time = std::chrono::steady_clock::now();
+
+    async_op_with_retry(ctx, [&](std::error_code ec, int r) {
+        actual_result = std::tuple{ec, r};
+        time_taken = std::chrono::steady_clock::now() - start_time;
+    });
+
+    cancel_token_ptr = nullptr;
+
+    ctx.run();
+    ASSERT_TRUE(actual_result.has_value());
+    EXPECT_EQ(std::get<0>(actual_result.value()), make_error_code(asio::error::operation_aborted));
+    EXPECT_EQ(called_times, 1);
+    EXPECT_NEAR(std::chrono::duration_cast<std::chrono::milliseconds>(time_taken).count(), 0, 5);
+}
+
+TEST(async_retry_tests, cancel_test__no_error) {
+    asio::io_context ctx;
+
+    // async op returning unique_ptr as result.
+    int called_times = 0;
+    auto async_op = [&called_times](asio::io_context& ctx, auto done_cb) {
+        called_times++;
+        done_cb(make_error_code(std::errc::io_error));
+    };
+
+    cancellation_token cancel_token;
+    auto async_op_with_retry = async_retry(ctx, async_op, {.attempts = 3, .pause = 1s}, cancel_token);
+
+    std::optional<std::error_code> actual_result;
+    std::chrono::steady_clock::duration time_taken;
+
+    auto start_time = std::chrono::steady_clock::now();
+
+    async_op_with_retry(ctx, [&](std::error_code ec) {
+        actual_result = ec;
+        time_taken = std::chrono::steady_clock::now() - start_time;
+    });
+
+    cancel_token.cancel();
+
+    ctx.run();
+    ASSERT_TRUE(actual_result.has_value());
+    EXPECT_EQ(*actual_result, make_error_code(asio::error::operation_aborted));
+    EXPECT_EQ(called_times, 1);
+    EXPECT_NEAR(std::chrono::duration_cast<std::chrono::milliseconds>(time_taken).count(), 0, 5);
+}
+
+// TODO: cancelling operation that has not even been started.
+
+// resuing token shoul work. typical scenario would be either having token as part of class: m_scan_retry_cancel
+//  or keeping token inside of some lambda.

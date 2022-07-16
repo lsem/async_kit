@@ -4,6 +4,7 @@
 #include <asio/steady_timer.hpp>
 
 #include <function2/function2.hpp>
+#include <iostream>
 
 namespace lsem::async {
 
@@ -29,10 +30,15 @@ struct control_block {
     using callback_type = fu2::unique_function<void(std::error_code)>;
     using thunk_type = fu2::unique_function<void()>;
 
-    control_block(async_retry_opts opts) : opts(std::move(opts)) {}
+    explicit control_block(async_retry_opts opts, asio::steady_timer pause_timer)
+        : opts(std::move(opts)), pause_timer(std::move(pause_timer)) {}
 
-    thunk_type thunk_f;
+    void cancel() { pause_timer.cancel(); }
+
+    thunk_type try_next;
     callback_type custom_handler;
+    std::shared_ptr<fu2::unique_function<void()>> real_cancel;
+    asio::steady_timer pause_timer;
 };
 
 template <class R>
@@ -40,22 +46,68 @@ struct control_block_with_result {
     using callback_type = fu2::unique_function<void(std::error_code, R)>;
     using thunk_type = fu2::unique_function<void()>;
 
-    explicit control_block_with_result(async_retry_opts opts) : opts(std::move(opts)) {}
+    explicit control_block_with_result(async_retry_opts opts, asio::steady_timer pause_timer)
+        : opts(std::move(opts)), pause_timer(std::move(pause_timer)) {}
+
+    void cancel() { pause_timer.cancel(); }
 
     int attempt = 1;
     const async_retry_opts opts;
-    thunk_type thunk_f;
+    thunk_type try_next;
     callback_type custom_handler;
+    std::shared_ptr<fu2::unique_function<void()>> real_cancel;
+    asio::steady_timer pause_timer;
 };
 }  // namespace details
 
+// token is a thing that allow to cancel async operation.
+struct cancellation_token {
+    ~cancellation_token() {
+        if (impl) {
+            impl();
+        }
+    }
+
+    void cancel() {
+        if (impl) {
+            impl();
+            impl = nullptr;
+        }
+    }
+
+    // TODO: cancel_async(done)?
+
+    // implementors of async functions can hook they implementation specific
+    // cancellation mechanism to be invoked when user wants to cancel something.
+    // implementation can put anything callable into impl and that will be invoked either by calling function
+    // or in destrcutor automatically.
+    fu2::unique_function<void()> impl;
+};
+
+namespace {
+cancellation_token g_dummy_token;
+}
+
+
 template <class AsyncFunction>
-auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts = {}) {
+auto async_retry(asio::io_context& ctx,
+                 AsyncFunction&& f,
+                 async_retry_opts opts = {},
+                 cancellation_token& token_ref = g_dummy_token) {
     if (opts.attempts == 0) {
         throw std::invalid_argument("0 attempts not supported by async_retry");
     }
 
-    return [f = std::move(f), opts = std::move(opts), &ctx](auto&&... args) {
+    auto real_cancel = std::make_shared<fu2::unique_function<void()>>();
+    token_ref.impl = [real_cancel] {
+        if (*real_cancel) {
+            (*real_cancel)();
+        } else {
+            // not started or already destroyed.
+        }
+    };
+
+    return [f = std::move(f), opts = std::move(opts), &ctx, real_cancel](auto&&... args) {
         static_assert(std::is_invocable_v<AsyncFunction, decltype(args)...>);
 
         auto args_as_tuple = std::forward_as_tuple(std::forward<decltype(args)>(args)...);
@@ -70,10 +122,14 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                       "last argument expected to be callback");
 
         if constexpr (std::is_invocable_v<decltype(done), std::error_code>) {
-            auto shared_control_block = std::make_shared<details::control_block>(std::move(opts));
+            auto shared_control_block =
+                std::make_shared<details::control_block>(std::move(opts), asio::steady_timer{ctx});
 
-            shared_control_block->thunk_f = [shared_control_block, f = std::move(f),
-                                             input_args = std::move(input_args)]() {
+            *real_cancel = [shared_control_block]() { shared_control_block->cancel(); };
+            shared_control_block->real_cancel = real_cancel;
+
+            shared_control_block->try_next = [shared_control_block, f = std::move(f),
+                                              input_args = std::move(input_args)]() {
                 // we cannot move our own handler because we need it for more than one attempt so we create
                 // one more wrapper.
                 auto wrapper = [shared_control_block](std::error_code ec) { shared_control_block->custom_handler(ec); };
@@ -86,7 +142,9 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                 auto free_resources_async = [&ctx](std::shared_ptr<details::control_block> shared_control_block) {
                     ctx.post([shared_control_block] {
                         shared_control_block->custom_handler = nullptr;
-                        shared_control_block->thunk_f = nullptr;
+                        shared_control_block->try_next = nullptr;
+                        *shared_control_block->real_cancel = nullptr;
+                        shared_control_block->real_cancel = nullptr;
                     });
                 };
 
@@ -96,9 +154,17 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                         done(ec);  // q: only last error, what about others?
                         return;
                     } else {
-                        // use 1s sleep before doing next attemp.
-                        async_sleep(ctx, shared_control_block->opts.pause,
-                                    [shared_control_block](std::error_code ec) { shared_control_block->thunk_f(); });
+                        shared_control_block->pause_timer.expires_from_now(shared_control_block->opts.pause);
+                        shared_control_block->pause_timer.async_wait(
+                            [free_resources_async, shared_control_block, done = std::move(done)](std::error_code ec) {
+                                if (!ec) {
+                                    shared_control_block->try_next();
+                                } else {
+                                    std::cout << "pause timer error: " << ec.message() << "\n";
+                                    free_resources_async(shared_control_block);
+                                    done(ec);
+                                }
+                            });
                         return;
                     }
                 } else {
@@ -107,17 +173,20 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                 }
             };
 
-            shared_control_block->thunk_f();
+            shared_control_block->try_next();
         } else {
             // TODO: get rid of code duplication
 
             using async_result_type = utils::result_type_t<decltype(done)>;
 
-            auto shared_control_block =
-                std::make_shared<details::control_block_with_result<async_result_type>>(std::move(opts));
+            auto shared_control_block = std::make_shared<details::control_block_with_result<async_result_type>>(
+                std::move(opts), asio::steady_timer{ctx});
 
-            shared_control_block->thunk_f = [shared_control_block, f = std::move(f),
-                                             input_args = std::move(input_args)]() {
+            *real_cancel = [shared_control_block]() { shared_control_block->cancel(); };
+            shared_control_block->real_cancel = real_cancel;
+
+            shared_control_block->try_next = [shared_control_block, f = std::move(f),
+                                              input_args = std::move(input_args)]() {
                 // we cannot move our own handler because we need it for more than one attempt so we create
                 // one more wrapper.
                 auto wrapper = [shared_control_block](std::error_code ec, async_result_type r) {
@@ -134,7 +203,9 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                         std::shared_ptr<details::control_block_with_result<async_result_type>> shared_control_block) {
                         ctx.post([shared_control_block] {
                             shared_control_block->custom_handler = nullptr;
-                            shared_control_block->thunk_f = nullptr;
+                            shared_control_block->try_next = nullptr;
+                            *shared_control_block->real_cancel = nullptr;
+                            shared_control_block->real_cancel = nullptr;
                         });
                     };
 
@@ -144,9 +215,17 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                         done(ec, async_result_type{});  // q: only last error, what about others?
                         return;
                     } else {
-                        // use 1s sleep before doing next attemp.
-                        async_sleep(ctx, shared_control_block->opts.pause,
-                                    [shared_control_block](std::error_code ec) { shared_control_block->thunk_f(); });
+                        shared_control_block->pause_timer.expires_from_now(shared_control_block->opts.pause);
+                        shared_control_block->pause_timer.async_wait(
+                            [free_resources_async, shared_control_block, done = std::move(done)](std::error_code ec) {
+                                if (!ec) {
+                                    shared_control_block->try_next();
+                                } else {
+                                    std::cout << "pause timer error: " << ec.message() << "\n";
+                                    free_resources_async(shared_control_block);
+                                    done(ec, async_result_type{});  // q: only last error, what about others?
+                                }
+                            });
                         return;
                     }
                 } else {
@@ -155,7 +234,7 @@ auto async_retry(asio::io_context& ctx, AsyncFunction&& f, async_retry_opts opts
                 }
             };
 
-            shared_control_block->thunk_f();
+            shared_control_block->try_next();
         }
     };
 }
