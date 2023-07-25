@@ -15,9 +15,10 @@ file(GLOB CPP_FILES "src/*.cpp")
 list(FILTER HPP_FILES EXCLUDE REGEX "_test\\.hpp")
 list(FILTER CPP_FILES EXCLUDE REGEX "_test\\.cpp")
 
-add_library(async_kit INTERFACE)
+add_library(async_kit ${HPP_FILES} ${CPP_FILES})
 add_library(async_kit::async_kit ALIAS async_kit)
-target_include_directories(async_kit INTERFACE include)
+target_include_directories(async_kit PUBLIC include)
+target_link_libraries(async_kit PUBLIC function2::function2 asio::asio)
 
 
 add_executable(async_kit_playground ${HPP_FILES} ${CPP_FILES} "async_kit_playground_main.cpp")
