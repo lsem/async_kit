@@ -2,6 +2,7 @@
 
 namespace lsem::async_kit {
 
+
 namespace errors {
 namespace {
 struct async_callback_err_cat : std::error_category {
@@ -19,6 +20,7 @@ struct async_callback_err_cat : std::error_category {
 
 const async_callback_err_cat the_async_callback_category;
 }  // namespace
+
 
 std::error_code make_error_code(async_callback_err e) {
     return {static_cast<int>(e), the_async_callback_category};

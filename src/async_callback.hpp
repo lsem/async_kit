@@ -35,11 +35,4 @@ struct func_type<void> {
 template <class T>
 using async_callback = typename func_type<T>::async_callback;
 
-template <class T>
-using acallback_t = async_callback<T>;
-template <class T>
-using acallback = async_callback<T>;
-template <class T>
-using async_result = async_callback<T>;
-
 }  // namespace lsem::async_kit
