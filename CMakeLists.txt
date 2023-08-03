@@ -5,8 +5,8 @@ project(asio_playground)
 set (CMAKE_CXX_STANDARD 17)
 
 # this is temporary
-add_compile_options(-fsanitize=address)
-add_link_options(-fsanitize=address)
+# add_compile_options(-fsanitize=address)
+# add_link_options(-fsanitize=address)
 
 add_subdirectory(function2)
 
