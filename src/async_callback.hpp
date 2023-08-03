@@ -77,37 +77,36 @@ class async_callback_impl_t {
     template <typename EnableWhenVoid = std::enable_if<std::is_same_v<T, void>>,
               typename = typename EnableWhenVoid::type>
     void operator()(const std::error_code& ec) {
-        if (!m_called) {
-            m_called = true;
-            m_cb(ec);
-        } else {
-            LogFns::print_error_line("async_kit: {}: attempt to call the callback twice", m_origin_tag);
-            return;
-        }
+        call_operator(ec);
     }
 
     template <typename Param = T,
               typename EnableWhenNonVoid = std::enable_if<!std::is_same_v<T, void>>,
               typename = typename EnableWhenNonVoid::type>
     void operator()(const std::error_code& ec, Param&& p) {
+        call_operator(ec, std::forward<Param>(p));
+    }
+
+    operator bool() const { return m_cb.operator bool(); }
+
+   private:
+    template <class... Args>
+    void call_operator(Args&&... args) {
+        static_assert(std::is_invocable_v<decltype(m_cb), Args...>, "not invocable");
+
         if (!m_called) {
             m_called = true;
-            m_cb(ec, std::forward<Param>(p));
+            std::invoke(m_cb, std::forward<Args>(args)...);
         } else {
             LogFns::print_error_line("async_kit: {}: attempt to call the callback twice", m_origin_tag);
             return;
         }
     }
 
-    operator bool() const { return m_cb.operator bool(); }
-
-   private:
     void handle_not_called() {
         if (m_cb) {
             if (!m_called) {
                 LogFns::print_error_line("async_kit: {}: callback has not been called", m_origin_tag);
-
-                // TODO: this is working only or void callback.
                 if constexpr (std::is_invocable_v<decltype(m_cb), std::error_code>) {
                     std::exchange(m_cb, nullptr)(make_error_code(errors::async_callback_err::not_called));
                 } else {
