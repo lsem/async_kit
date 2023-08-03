@@ -1,8 +1,12 @@
 #pragma once
 
+#include <fmt/format.h>
+#include <experimental/source_location>
 #include <function2/function2.hpp>
 #include <iostream>
 #include <memory>
+#include <string>
+#include <string_view>
 #include <system_error>
 
 namespace lsem::async_kit {
@@ -35,7 +39,10 @@ struct func_type<void> {
 };
 
 struct default_log_fns_t {
-    static void print_error_line(const char* msg) { std::cerr << "ERROR: " << msg << "\n"; }
+    template <class... Args>
+    static void print_error_line(std::string_view fmt_str, Args&&... args) {
+        std::cerr << "ERROR: " << fmt::vformat(fmt_str, fmt::make_format_args(args...)) << "\n";
+    }
 };
 
 template <class T, class LogFns = default_log_fns_t>
@@ -44,7 +51,9 @@ class async_callback_impl_t {
     async_callback_impl_t() : m_cb(nullptr) {}
 
     template <class Callable>
-    async_callback_impl_t(Callable cb) : m_cb(std::move(cb)) {}
+    async_callback_impl_t(Callable cb,
+                          std::experimental::source_location sloc = std::experimental::source_location::current())
+        : m_cb(std::move(cb)), m_origin_tag(fmt::format("{}:{}", sloc.file_name(), sloc.line())) {}
 
     ~async_callback_impl_t() { handle_not_called(); }
 
@@ -72,7 +81,7 @@ class async_callback_impl_t {
             m_called = true;
             m_cb(ec);
         } else {
-            LogFns::print_error_line("async_kit: attempt to call the callback twice");
+            LogFns::print_error_line("async_kit: {}: attempt to call the callback twice", m_origin_tag);
             return;
         }
     }
@@ -85,7 +94,7 @@ class async_callback_impl_t {
             m_called = true;
             m_cb(ec, std::forward<Param>(p));
         } else {
-            LogFns::print_error_line("async_kit: attempt to call the callback twice");
+            LogFns::print_error_line("async_kit: {}: attempt to call the callback twice", m_origin_tag);
             return;
         }
     }
@@ -96,7 +105,7 @@ class async_callback_impl_t {
     void handle_not_called() {
         if (m_cb) {
             if (!m_called) {
-                LogFns::print_error_line("async_kit: callback not called");
+                LogFns::print_error_line("async_kit: {}: callback has not been called", m_origin_tag);
 
                 // TODO: this is working only or void callback.
                 if constexpr (std::is_invocable_v<decltype(m_cb), std::error_code>) {
@@ -111,6 +120,7 @@ class async_callback_impl_t {
    private:
     typename func_type<T>::async_callback m_cb;
     bool m_called = false;
+    std::string m_origin_tag;
 };
 
 }  // namespace lsem::async_kit
