@@ -161,3 +161,12 @@ TEST(async_callback_test, null_assignment__param) {
     EXPECT_THAT(invocations, ElementsAre(std::pair<std::error_code, int>{
                                  make_error_code(errors::async_callback_err::not_called), int{}}));
 }
+
+TEST(async_callback_test, shared_async_callback_basic__void) {
+    // Sometimes we need to make async_callback copyable just because some subsystems require copyable handler (like
+    // asio) but in the same time they promise to call our callback once. Or we want to enforce that it is called only
+    // once. For this purpose shared version of async_callback is proposed, think of it as sugar which makes calling
+    // easier.
+
+    GTEST_SKIP() << "Not implemented";
+}

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <cassert>
 #include <experimental/source_location>
 #include <function2/function2.hpp>
 #include <iostream>
@@ -121,5 +122,38 @@ class async_callback_impl_t {
     bool m_called = false;
     std::string m_origin_tag;
 };
+
+// TODO: ensure async_callback cannot be created from shared one to prevent.
+template <class T>
+class shared_async_callback_impl_t {
+   public:
+    explicit shared_async_callback_impl_t(async_callback_impl_t<T> cb)
+        : m_cb_shared_ptr(std::make_shared<async_callback_impl_t<T>>(std::move(cb))) {}
+
+    template <typename EnableWhenVoid = std::enable_if<std::is_same_v<T, void>>,
+              typename = typename EnableWhenVoid::type>
+    void operator()(const std::error_code& ec) {
+        assert(m_cb_shared_ptr);
+        (*m_cb_shared_ptr)(ec);
+    }
+
+    template <typename Param = T,
+              typename EnableWhenNonVoid = std::enable_if<!std::is_same_v<T, void>>,
+              typename = typename EnableWhenNonVoid::type>
+    void operator()(const std::error_code& ec, Param&& p) {
+        assert(m_cb_shared_ptr);
+        (*m_cb_shared_ptr)(ec, std::forward<Param>(p));
+    }
+
+    operator bool() const { return m_cb_shared_ptr->operator bool(); }
+
+   private:
+    std::shared_ptr<async_callback_impl_t<T>> m_cb_shared_ptr;
+};
+
+template <class T>
+shared_async_callback_impl_t<T> to_shared(async_callback_impl_t<T> cb) {
+    return shared_async_callback_impl_t(std::move(cb));
+}
 
 }  // namespace lsem::async_kit
