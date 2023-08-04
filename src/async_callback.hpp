@@ -29,15 +29,31 @@ struct is_error_code_enum<lsem::async_kit::errors::async_callback_err> : true_ty
 
 namespace lsem::async_kit {
 
+namespace details {
+
 template <class T>
 struct func_type {
-    using async_callback = fu2::unique_function<void(std::error_code, T)>;
+    using async_callback_t = fu2::unique_function<void(std::error_code, T)>;
 };
 
 template <>
 struct func_type<void> {
-    using async_callback = fu2::unique_function<void(std::error_code)>;
+    using async_callback_t = fu2::unique_function<void(std::error_code)>;
 };
+
+constexpr std::string_view file_name(const char* fpath) {
+    size_t file_name_start_pos = 0;
+    for (size_t i = 0; fpath[i]; ++i) {
+        if (fpath[i] == '/') {
+            file_name_start_pos = i + 1;
+        }
+    }
+    return std::string_view(fpath + file_name_start_pos);
+}
+static_assert(file_name("a") == "a");
+static_assert(file_name("a/b") == "b");
+static_assert(file_name("a/b/c") == "c");
+static_assert(file_name("a/b/c.d") == "c.d");
 
 struct default_log_fns_t {
     template <class... Args>
@@ -46,7 +62,9 @@ struct default_log_fns_t {
     }
 };
 
-template <class T, class LogFns = default_log_fns_t>
+}  // namespace details
+
+template <class T, class LogFns = details::default_log_fns_t>
 class async_callback_impl_t {
    public:
     async_callback_impl_t() : m_cb(nullptr) {}
@@ -54,7 +72,8 @@ class async_callback_impl_t {
     template <class Callable>
     async_callback_impl_t(Callable cb,
                           std::experimental::source_location sloc = std::experimental::source_location::current())
-        : m_cb(std::move(cb)), m_origin_tag(fmt::format("{}:{}", sloc.file_name(), sloc.line())) {}
+        // TODO: strip filepath from file_name.
+        : m_cb(std::move(cb)), m_origin_tag(fmt::format("{}:{}", details::file_name(sloc.file_name()), sloc.line())) {}
 
     ~async_callback_impl_t() { handle_not_called(); }
 
@@ -64,14 +83,12 @@ class async_callback_impl_t {
     async_callback_impl_t(async_callback_impl_t&& rhs) {
         m_cb = std::move(rhs.m_cb);
         m_called = rhs.m_called;
-        rhs.m_cb = nullptr;  // TODO: try swap/exhange instead once we have test that covers this.
     }
 
     async_callback_impl_t& operator=(async_callback_impl_t&& rhs) {
         handle_not_called();
         m_cb = std::move(rhs.m_cb);
         m_called = rhs.m_called;
-        rhs.m_cb = nullptr;
         return *this;
     }
 
@@ -118,7 +135,7 @@ class async_callback_impl_t {
     }
 
    private:
-    typename func_type<T>::async_callback m_cb;
+    typename details::func_type<T>::async_callback_t m_cb;
     bool m_called = false;
     std::string m_origin_tag;
 };
