@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.5)
 
 project(asio_playground)
 
-set (CMAKE_CXX_STANDARD 17)
+set (CMAKE_CXX_STANDARD 20)
 
 add_subdirectory(function2)
 
@@ -52,4 +52,3 @@ target_link_options(async_kit_tests PRIVATE "-fsanitize=address")
 # else()
 #   message(STATUS ">> SUCCESS")
 # endif()
-

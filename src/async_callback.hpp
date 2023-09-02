@@ -2,7 +2,7 @@
 
 #include <fmt/format.h>
 #include <cassert>
-#include <experimental/source_location>
+//#include <experimental/source_location>
 #include <function2/function2.hpp>
 #include <iostream>
 #include <memory>
@@ -70,10 +70,10 @@ class async_callback_impl_t {
     async_callback_impl_t() : m_cb(nullptr) {}
 
     template <class Callable>
-    async_callback_impl_t(Callable cb,
-                          std::experimental::source_location sloc = std::experimental::source_location::current())
+    async_callback_impl_t(Callable cb/*,
+                          std::experimental::source_location sloc = std::experimental::source_location::current()*/)
         // TODO: strip filepath from file_name.
-        : m_cb(std::move(cb)), m_origin_tag(fmt::format("{}:{}", details::file_name(sloc.file_name()), sloc.line())) {}
+        : m_cb(std::move(cb)) /*,m_origin_tag(fmt::format("{}:{}", details::file_name(sloc.file_name()), sloc.line()))*/ {}
 
     ~async_callback_impl_t() { handle_not_called(); }
 
