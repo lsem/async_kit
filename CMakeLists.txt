@@ -30,6 +30,21 @@ target_link_libraries(async_kit_tests PRIVATE GTest::gtest GTest::gmock GTest::g
 target_compile_options(async_kit_tests PRIVATE "-fsanitize=address")
 target_link_options(async_kit_tests PRIVATE "-fsanitize=address")
 
+# Lets try to iterate filess in include directory
+file(GLOB PUBLIC_HPP_FILES CONFIGURE_DEPENDS "include/async_kit/*.hpp")
+set(PUBLIC_HPP_FILES_IN_SRC "")
+message("PUBLIC_HPP_FILES: ${PUBLIC_HPP_FILES}")
+foreach(file_path ${PUBLIC_HPP_FILES})
+  cmake_path(GET file_path FILENAME file_name)
+  set(header_path_in_src src/${file_name})
+  message("file: " ${file_name} -> ${header_path_in_src})
+  list(APPEND PUBLIC_HPP_FILES_IN_SRC ${header_path_in_src})
+endforeach()
+message("Resulting list: ${PUBLIC_HPP_FILES_IN_SRC}")
+
+install(FILES ${PUBLIC_HPP_FILES_IN_SRC} DESTINATION include/async_kit)
+#install(DIRECTORY include/async_kit DESTINATION include/)
+
 
 # message(STATUS "CMAKE_CXX_COMPILER: ${CMAKE_CXX_COMPILER}")
 
