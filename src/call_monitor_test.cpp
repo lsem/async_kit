@@ -1,6 +1,7 @@
 #include "call_monitor.hpp"
 
 #include <asio/io_context.hpp>
+#include <asio/post.hpp>
 
 #include <gtest/gtest.h>
 #include <sstream>
@@ -20,7 +21,7 @@ TEST(call_monitor_test, basic_test) {
 
     asio::io_context ctx;
 
-    ctx.post([&] {
+    asio::post(ctx, [&] {
         call_monitor::sync_call(
             [&] {
                 log << "slow_sync_call/begin\n";
@@ -47,7 +48,7 @@ TEST(call_monitor_test, start_with_non_started_monitor_test) {
 
     asio::io_context ctx;
 
-    ctx.post([&] {
+    asio::post(ctx, [&] {
         call_monitor::sync_call(
             [&] {
                 log << "slow_sync_call/begin\n";

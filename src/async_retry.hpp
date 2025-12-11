@@ -1,6 +1,7 @@
 #include "utils.hpp"
 
 #include <asio/io_context.hpp>
+#include <asio/post.hpp>
 #include <asio/steady_timer.hpp>
 
 #include <function2/function2.hpp>
@@ -140,7 +141,7 @@ auto async_retry(asio::io_context& ctx,
             shared_control_block->custom_handler = [&ctx, done = std::move(done),
                                                     shared_control_block](std::error_code ec) mutable {
                 auto free_resources_async = [&ctx](std::shared_ptr<details::control_block> shared_control_block) {
-                    ctx.post([shared_control_block] {
+		    asio::post(ctx, [shared_control_block] {
                         shared_control_block->custom_handler = nullptr;
                         shared_control_block->try_next = nullptr;
                         *shared_control_block->real_cancel = nullptr;
@@ -154,7 +155,7 @@ auto async_retry(asio::io_context& ctx,
                         done(ec);  // q: only last error, what about others?
                         return;
                     } else {
-                        shared_control_block->pause_timer.expires_from_now(shared_control_block->opts.pause);
+                        shared_control_block->pause_timer.expires_after(shared_control_block->opts.pause);
                         shared_control_block->pause_timer.async_wait(
                             [free_resources_async, shared_control_block, done = std::move(done)](std::error_code ec) {
                                 if (!ec) {
@@ -201,7 +202,7 @@ auto async_retry(asio::io_context& ctx,
                 auto free_resources_async =
                     [&ctx](
                         std::shared_ptr<details::control_block_with_result<async_result_type>> shared_control_block) {
-                        ctx.post([shared_control_block] {
+			asio::post(ctx, [shared_control_block] {
                             shared_control_block->custom_handler = nullptr;
                             shared_control_block->try_next = nullptr;
                             *shared_control_block->real_cancel = nullptr;
@@ -215,7 +216,7 @@ auto async_retry(asio::io_context& ctx,
                         done(ec, async_result_type{});  // q: only last error, what about others?
                         return;
                     } else {
-                        shared_control_block->pause_timer.expires_from_now(shared_control_block->opts.pause);
+                        shared_control_block->pause_timer.expires_after(shared_control_block->opts.pause);
                         shared_control_block->pause_timer.async_wait(
                             [free_resources_async, shared_control_block, done = std::move(done)](std::error_code ec) {
                                 if (!ec) {

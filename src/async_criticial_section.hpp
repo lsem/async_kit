@@ -1,6 +1,7 @@
 #pragma once
 
 #include <asio/io_context.hpp>
+#include <asio/post.hpp>
 #include <functional>
 #include <iostream>
 #include <list>
@@ -17,7 +18,7 @@ class async_critical_section : public std::enable_shared_from_this<async_critica
         // we still need to call callbacks.
         if (!m_waiting_list.empty()) {
             for (auto& cb : m_waiting_list) {
-                m_ctx.post([cb = std::move(cb)] {
+		asio::post(m_ctx, [cb = std::move(cb)] {
                     // in case of error we give unfunctional/empty done callback.
                     cb(make_error_code(std::errc::operation_canceled), []() {});
                 });
@@ -45,7 +46,7 @@ class async_critical_section : public std::enable_shared_from_this<async_critica
     void do_run(next_callback_t cb) {
         cb(std::error_code(), [weak_this = weak_from_this()]() {
             if (auto this_ = weak_this.lock()) {
-                this_->m_ctx.post([weak_this = this_->weak_from_this()] {
+		asio::post(this_->m_ctx, [weak_this = this_->weak_from_this()] {
                     if (auto this_ = weak_this.lock()) {
                         this_->run_next();
                     }
@@ -59,7 +60,7 @@ class async_critical_section : public std::enable_shared_from_this<async_critica
             auto next = std::move(m_waiting_list.front());
             m_waiting_list.pop_front();
             // next got lock and will be executed.
-            m_ctx.post([next = std::move(next), weak_this = weak_from_this()] {
+	    asio::post(m_ctx, [next = std::move(next), weak_this = weak_from_this()] {
                 if (auto this_ = weak_this.lock()) {
                     this_->do_run(std::move(next));
                 }

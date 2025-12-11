@@ -19,7 +19,7 @@ class call_monitor_impl {
     void run(std::function<void(std::string)> f) {
         m_log_write = std::move(f);
         m_th = std::thread([this]() {
-            asio::io_context::work w(m_ctx);
+	    asio::executor_work_guard<asio::io_context::executor_type> work_guard(m_ctx.get_executor());
             m_ctx.run();
         });
     }
