@@ -1,6 +1,7 @@
 #include "async_timeoutable.hpp"
 
 #include <asio/io_context.hpp>
+#include <asio/post.hpp>
 #include <asio/steady_timer.hpp>
 
 #include <gtest/gtest.h>
@@ -374,7 +375,7 @@ TEST(async_timeoutable_tests, done_callback_destroyed_when_timeout) {
     simple_async_function_with_timeout(100ms, [&ctx, resource_ptr](std::error_code ec) {
         ASSERT_EQ(ec, make_error_code(std::errc::timed_out));
         // it is expected that only this ref and in outer scope exist.
-        ctx.post([resource_ptr] { ASSERT_EQ(resource_ptr.use_count(), 2); });
+        asio::post(ctx, [resource_ptr] { ASSERT_EQ(resource_ptr.use_count(), 2); });
     });
 
     ASSERT_EQ(resource_ptr.use_count(), 2);
@@ -402,7 +403,7 @@ TEST(async_timeoutable_tests, done_callback_destroyed_when_results) {
     simple_async_function_with_timeout(1s, [&ctx, resource_ptr](std::error_code ec) {
         ASSERT_EQ(ec, std::error_code());
         // it is expected that only this ref and in outer scope exist.
-        ctx.post([resource_ptr] { ASSERT_EQ(resource_ptr.use_count(), 2); });
+        asio::post(ctx, [resource_ptr] { ASSERT_EQ(resource_ptr.use_count(), 2); });
     });
 
     ASSERT_EQ(resource_ptr.use_count(), 2);
@@ -419,7 +420,7 @@ struct simple_socket {
     template <class Handler>
     void async_shutdown(Handler&& h) {
         // to simulate async long running process, we are going to have timer.
-        m_timer.expires_from_now(m_simulated_shutdown_time);
+        m_timer.expires_after(m_simulated_shutdown_time);
         m_timer.async_wait([h = std::move(h)](std::error_code ec) { h(std::error_code()); });
     }
 

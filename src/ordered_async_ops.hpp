@@ -1,5 +1,6 @@
 #pragma once
 #include <asio/io_context.hpp>
+#include <asio/post.hpp>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -22,7 +23,7 @@ class ordered_async_ops_impl : public std::enable_shared_from_this<ordered_async
                 std::sort(this_->m_thunks.begin(), this_->m_thunks.end(),
                           [](auto& l, auto& r) { return std::get<int>(l) < std::get<int>(r); });
                 for (auto& t : this_->m_thunks) {
-                    this_->m_ctx.post([t = std::move(t)] { std::get<std::function<void()>>(t)(); });
+		    asio::post(this_->m_ctx, [t = std::move(t)] { std::get<std::function<void()>>(t)(); });
                     // for simplicity, left in undefined state.
                 }
             }

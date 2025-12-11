@@ -2,6 +2,7 @@
 
 #include <asio/io_context.hpp>
 #include <asio/steady_timer.hpp>
+#include <asio/post.hpp>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -42,7 +43,7 @@ TEST(async_retry_tests, no_results_success_test__post) {
     asio::io_context ctx;
 
     auto async_scan = [](asio::io_context& ctx, auto done_cb) {
-        ctx.post([done_cb = std::move(done_cb)] { done_cb(std::error_code()); });
+	asio::post(ctx, [done_cb = std::move(done_cb)] { done_cb(std::error_code()); });
     };
 
     auto async_scan_with_retry = async_retry(ctx, async_scan);
@@ -74,7 +75,7 @@ TEST(async_retry_tests, no_results_failure_test__post) {
     asio::io_context ctx;
 
     auto async_scan = [](asio::io_context& ctx, auto done_cb) {
-        ctx.post([done_cb = std::move(done_cb)] { done_cb(make_error_code(std::errc::io_error)); });
+	asio::post(ctx, [done_cb = std::move(done_cb)] { done_cb(make_error_code(std::errc::io_error)); });
     };
 
     auto async_scan_with_retry = async_retry(ctx, async_scan);
@@ -108,7 +109,7 @@ TEST(async_retry_tests, with_results_success_test__post) {
     asio::io_context ctx;
 
     auto async_scan = [](asio::io_context& ctx, auto done_cb) {
-        ctx.post([done_cb = std::move(done_cb)] { done_cb(std::error_code(), 42); });
+        asio::post(ctx, [done_cb = std::move(done_cb)] { done_cb(std::error_code(), 42); });
     };
 
     auto async_scan_with_retry = async_retry(ctx, async_scan);
@@ -140,7 +141,7 @@ TEST(async_retry_tests, with_results_failure_test__post) {
     asio::io_context ctx;
 
     auto async_scan = [](asio::io_context& ctx, auto done_cb) {
-        ctx.post([done_cb = std::move(done_cb)] { done_cb(make_error_code(std::errc::io_error), 0); });
+        asio::post(ctx, [done_cb = std::move(done_cb)] { done_cb(make_error_code(std::errc::io_error), 0); });
     };
 
     auto async_scan_with_retry = async_retry(ctx, async_scan);
@@ -159,7 +160,7 @@ TEST(async_retry_tests, zero_pause_between_attempts_test) {
     asio::io_context ctx;
 
     auto async_scan = [](asio::io_context& ctx, auto done_cb) {
-        ctx.post([done_cb = std::move(done_cb)] { done_cb(make_error_code(std::errc::io_error), 0); });
+        asio::post(ctx, [done_cb = std::move(done_cb)] { done_cb(make_error_code(std::errc::io_error), 0); });
     };
 
     auto async_scan_with_retry = async_retry(ctx, async_scan, {.attempts = 1, .pause = 0s});

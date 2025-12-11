@@ -67,7 +67,7 @@ auto async_timeoutable(asio::io_context& ctx, Callable&& c) {
         if constexpr (std::is_invocable_v<decltype(done), std::error_code>) {
             auto done_ptr = std::make_shared<std::optional<decltype(done)>>(std::move(done));
 
-            control_block->timeout_timer.expires_from_now(timeout_duration);
+            control_block->timeout_timer.expires_after(timeout_duration);
             control_block->timeout_timer.async_wait([done_ptr, control_block](std::error_code ec) {
                 if (!ec) {
                     if (!control_block->done_flag) {
@@ -96,7 +96,7 @@ auto async_timeoutable(asio::io_context& ctx, Callable&& c) {
         } else {
             auto done_ptr = std::make_shared<std::optional<decltype(done)>>(std::move(done));
 
-            control_block->timeout_timer.expires_from_now(timeout_duration);
+            control_block->timeout_timer.expires_after(timeout_duration);
             control_block->timeout_timer.async_wait([done_ptr, control_block](std::error_code ec) {
                 if (!ec) {
                     if (!control_block->done_flag) {
