@@ -23,7 +23,7 @@ if (NOT ASYNCKIT_EXTERNAL_ASIO)
   FetchContent_MakeAvailable(asio)
   add_library(asio INTERFACE)
   add_library(asio::asio ALIAS asio)
-  target_include_directories(asio INTERFACE ${CMAKE_CURRENT_BINARY_DIR}/_deps/asio-src/asio/include)
+  target_include_directories(asio INTERFACE ${CMAKE_BINARY_DIR}/_deps/asio-src/asio/include)
 endif()
 
 if (NOT ASYNCKIT_EXTERNAL_FMT)
